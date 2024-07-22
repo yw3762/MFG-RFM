@@ -150,7 +150,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
         # forward and grad
         for m in range(M_p): #
             # In m-th partition, evaluate each of the RFM feature function on the collocation points of k-th partition.
-            out = models[m](points[k])      #
+            out = models[m](points[k])
             values = out.detach().numpy()   # unrequire gradients, convert torch.tensor to np.array
             grads = []
             grads_2 = []
@@ -170,7 +170,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
 
-            Lu = grads_2 - lamb * values # PDE LHS, evaluated
+            Lu = grads_2 - lamb * values # PDE LHS on m-th partition, evaluated on the collocation points of k-th partition
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
@@ -179,10 +179,12 @@ def cal_matrix(models,points,M_p,J_n,Q):
             elif k == M_p - 1 and m==k:
                 A_2[1, -J_n:] = values[-1,:]
 
-        # get the true
+        # get the true values for f's
         true_f = Lu_f(points[k].detach().numpy(), lamb).reshape([(Q + 1),1])
         f[k*Q:(k + 1)*Q,: ] = true_f[:Q]
     A = np.concatenate((A_1,A_2),axis=0)
+
+    # initial conditions
     f[M_p*Q,:] = anal_u(0.)
     f[M_p*Q+1,:] = anal_u(8.)
     return(A,f)
