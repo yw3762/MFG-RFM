@@ -27,6 +27,26 @@ def weights_init(m):
         nn.init.uniform_(m.bias, a=-1, b=1)
 
 
+def init_local_RFM1d(J_n, x_min, x_max):
+    """
+    Initialize RFM network on an 1d domain, i.e. the interval [x_min, x_max].
+    :param J_n:
+    :param x_min:
+    :param x_max:
+    :return:
+    """
+    model = RFM_rep(in_features=1, J_n=J_n, x_min=x_min, x_max=x_max)
+
+    # Randomly initialize parameter (uniform[-1,1]), in double precision
+    model = model.apply(weights_init)
+    model = model.double()
+
+    # Freeze the randomly initialized parameters
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
+
+
 class RFM_rep(nn.Module):
     def __init__(self, in_features, J_n, x_max, x_min):
         super(RFM_rep, self).__init__()
