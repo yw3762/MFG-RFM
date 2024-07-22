@@ -1,9 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import math
-from scipy.linalg import lstsq, pinv
-import matplotlib.pyplot as plt
 import random
 
 from config import INTERVAL_LENGTH
