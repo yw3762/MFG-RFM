@@ -238,10 +238,10 @@ def test(models,M_p,J_n,Q,w,plot = False):
 
 def main(M_p,J_n,Q,plot = False, moore = False):
     # prepare models and collocation pointss
-    models,points = pre_define(M_p,J_n,Q)
+    models, points = pre_define(M_p,J_n,Q)
     
     # matrix define (Aw=b)
-    A,f = cal_matrix(models,points,M_p,J_n,Q)
+    A, f = cal_matrix(models,points,M_p,J_n,Q)
     
     # solve
     if moore:
