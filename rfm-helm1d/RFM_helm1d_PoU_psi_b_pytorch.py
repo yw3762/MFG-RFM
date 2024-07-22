@@ -108,9 +108,9 @@ def pre_define(M_p,J_n,Q):
     """
     define the local-networks and points in the corresponding regions
     :param M_p: number of partitions
-    :param J_n: number of RF basis functions
+    :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
-    :return: 1. a list of models for each partition
+    :return: 1. a list of local NNs, one for each partition
              2. a 2d list of points, each element in the outer list is a list of collocation points for a partition
     """
     models = []
@@ -131,32 +131,46 @@ def pre_define(M_p,J_n,Q):
     return(models, points)
 
 
-# calculate the matrix A,f in linear equations system 'Au=f'
 def cal_matrix(models,points,M_p,J_n,Q):
+    """
+    Calculate the matrix A,f in linear equations system 'Au=f'
+    :param models: A list of local NNs, one for each partition
+    :param points: Each element in this variable is a list of collocation points for a partition
+    :param M_p: number of partitions
+    :param J_n: number of RF basis functions in each partition, each RF basis function is a RFM_Rep object
+    :param Q: number of collocation points inside a partition
+    :return: matrix A and vector f for over-determined system
+    """
     # matrix define (Aw=b)
     A_1 = np.zeros([M_p*Q,M_p*J_n])         # for PDE
     A_2 = np.zeros([2,M_p*J_n])             # for BC
     f = np.zeros([M_p*Q + 2, 1])            #
     
-    for k in range(M_p):
+    for k in range(M_p): # iterate over all partitions
         # forward and grad
-        for m in range(M_p):
-            out = models[m](points[k])
-            values = out.detach().numpy()
+        for m in range(M_p): #
+            # In m-th partition, evaluate each of the RFM feature function on the collocation points of k-th partition.
+            out = models[m](points[k])      #
+            values = out.detach().numpy()   # unrequire gradients, convert torch.tensor to np.array
             grads = []
             grads_2 = []
-            for i in range(J_n):
+            for i in range(J_n): # within a partition, check for every basis function
+                # Compute gradient of i-th basis function
                 g_1 = torch.autograd.grad(outputs=out[:,i], inputs=points[k],
                                       grad_outputs=torch.ones_like(out[:,i]),
                                       create_graph = True, retain_graph = True)[0]
+                # remove dims of size 1, unrequire gradients, convert to np.array
                 grads.append(g_1.squeeze().detach().numpy())
+
+                # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=points[k],
                                       grad_outputs=torch.ones_like(out[:,i]),
                                       create_graph = False, retain_graph = True)[0]
                 grads_2.append(g_2.squeeze().detach().numpy())
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
-            Lu = grads_2 - lamb * values
+
+            Lu = grads_2 - lamb * values # PDE LHS, evaluated
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
@@ -164,7 +178,8 @@ def cal_matrix(models,points,M_p,J_n,Q):
                 A_2[0, :J_n] = values[0,:]
             elif k == M_p - 1 and m==k:
                 A_2[1, -J_n:] = values[-1,:]
-                
+
+        # get the true
         true_f = Lu_f(points[k].detach().numpy(), lamb).reshape([(Q + 1),1])
         f[k*Q:(k + 1)*Q,: ] = true_f[:Q]
     A = np.concatenate((A_1,A_2),axis=0)
