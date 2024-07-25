@@ -111,7 +111,7 @@ def pre_define(M_p,J_n,Q):
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
     :return: 1. a list of local NNs, one for each partition
-             2. a 2d list of points, each element in the outer list is a list of collocation points for a partition
+             2. a list of tensors, each tensor is of shape (Q+1, 1) and contains collocation points
     """
     models = []
     points = []
@@ -128,13 +128,13 @@ def pre_define(M_p,J_n,Q):
 
         # Within each partition, get the boundary pts (1d) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
-    return(models, points)
+    return models, points
 
 
 def cal_matrix(models,points,M_p,J_n,Q):
     """
     Calculate the matrix A,f in linear equations system 'Au=f'
-    :param models: A list of local NNs, one for each partition
+    :param models: A list of local NNs, one for each partition. Think of each model as a map R -> R^{J_n}
     :param points: Each element in this variable is a list of collocation points for a partition
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in each partition, each RF basis function is a RFM_Rep object

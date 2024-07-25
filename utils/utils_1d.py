@@ -44,6 +44,41 @@ def init_local_RFM1d(J_n, x_min, x_max):
     return model
 
 
+def get_differential_1d(f, points, method="center"):
+    """
+    Numerically compute derivatives of f(x)
+
+    :param f: function values evaluated at each point, same shape as points. f must be periodic in the domain
+    :param points: Partitions of domain, each partition contains a list of collocation points uniformly selected.
+                   Each partition have boundary coinciding at a point, and domain is periodic.
+    :param method: Method for getting the numerical differential.
+    :return:
+    """
+
+    k = len(points)  # number of partitions
+    n = len(points[0])  # number of collocation points
+
+    df = np.zeros((k, n))
+
+    # Check input points have coinciding boundary
+    for i in range(len(points)-1):
+        assert points[i][-1] == points[i+1][1]
+
+    if method == "center":
+        # f'(x) = (f(x+h) - f(x-h))/2h
+        divisor = 2*points[1][0] - 2*points[0][0] # 2h
+
+        for i in range(k):
+            for j in range(1, n-1):
+                df[i][j] = (f[i][j+1] - f[i][j-1]) / divisor
+
+        # Periodicity condition
+        for i in range(k):
+            df[i][-1] = (f[(i + 1) % k][1] - f[i][-2]) / divisor
+            df[(i + 1) % k][0] = df[i][-1]
+    return df
+
+
 class RFM_rep(nn.Module):
     def __init__(self, in_features, J_n, x_max, x_min):
         super(RFM_rep, self).__init__()
