@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from rfm_FP import solve_fokker_planck_1d
+from rfm_HJB import solve_hjb_1d
 
 
 def solve_1d_stationary_mfg(M_p, J_n, Q, R=100, n_iters=20, tau=1e-8):
@@ -17,10 +18,15 @@ def solve_1d_stationary_mfg(M_p, J_n, Q, R=100, n_iters=20, tau=1e-8):
     :return:
     """
 
+    # fix random seed
+    torch.set_default_dtype(torch.float64)
+
     # Initialize policy and derivatives
     q = [torch.ones((Q+1, 1))] * M_p
     for _ in range(n_iters):
-        models_fp, collocation_pts_fp, w_fp = solve_fokker_planck_1d(M_p, J_n, Q, q, dq)
+        models_fp, collocation_pts_fp, w_fp = solve_fokker_planck_1d(M_p, J_n, Q, q)
+        models_hjb, collocation_pts_hjb, w_hjb = solve_hjb_1d(models_fp, w_fp, M_p, J_n, Q, q)
+
         # TODO: Implement the following algorithm:
         #  1. Generate numerical solution for FP on the grid
         #  2. Pass the solution on the grid to the coupling term F(m) = m^2

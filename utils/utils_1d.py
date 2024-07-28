@@ -4,6 +4,8 @@ import torch.nn as nn
 import random
 
 from config import INTERVAL_LENGTH
+from utils.config import INTERVAL_LENGTH
+
 
 def set_seed(x):
     random.seed(x)
@@ -76,6 +78,8 @@ def get_differential_1d(f, points, method="center"):
         for i in range(k):
             df[i][-1] = (f[(i + 1) % k][1] - f[i][-2]) / divisor
             df[(i + 1) % k][0] = df[i][-1]
+    else:
+        raise NotImplementedError("Only center method is implemented")
     return df
 
 
@@ -133,3 +137,98 @@ class RFM_rep(nn.Module):
             return d0 * y0 + d1 * y1 + (d2 + d3) * y2 + d4 * y4
         else:
             return d0 * y0 + d1 * y1 + d2 * y2 + d3 * y3 + d4 * y4
+
+
+def init_rfm(M_p, J_n, Q):
+    """
+    Define the RFM model on each partition and their collocation points.
+    :param M_p: number of partitions
+    :param J_n: number of RF basis functions in a partition
+    :param Q: number of collocation points inside a partition
+    :return: 1. a list of local NNs, one for each partition
+             2. a list of M_p tensors, each tensor contains collocation points, with shape (Q+1, 1).
+    """
+    models = []
+    points = []
+    for k in range(M_p):
+        # Define RFM model in each partition, in 1d, partition is just an interval [x_min, x_max]
+        x_min = INTERVAL_LENGTH / M_p * k
+        x_max = INTERVAL_LENGTH / M_p * (k + 1)
+        models.append(init_local_RFM1d(J_n, x_min, x_max))
+
+        # Within each partition, get the boundary points (1d) as a column vector
+        points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
+    return models, points
+
+
+def V(x):
+    """
+    Analytical bounded potential function
+
+    The associated Hamiltonian is H(x, p) = 1/2 |p|^2 - V(x), where p is the variable for Dx
+    """
+    return np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x)
+
+
+def hamiltonian_1d(x, p, V):
+    """
+    Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
+
+    Note in 1d, |Du|**2 = (du/dx)**2
+    :param x: spatial variable, each element in this variable is a list of collocation points for a partition
+    :param p: velocity variable, same format as x, values are derivative Du at each point in x
+    :param V: bounded potential function
+    :return: value of Hamiltonian on (x, p), same shape as x
+    """
+    assert len(x) == len(p)
+
+    result = []
+    for i in range(len(x)):
+        result.append(p[i]**2 / 2 - V(x[i]))
+
+    return result
+
+
+def lagrangian_1d(x, q, v=V):
+    """
+    Return the Lagrangian associated with Hamiltonian H(x,Du) = 1/2 * |Du| ** 2 - V(x) for HJB on (x, q).
+
+    By simple calculation, we see our lagrangian L(x, q) = 1/2 * |q| ** 2 + V(x)
+
+    Note in 1d, |Du|**2 = (du/dx)**2
+    :param x: spatial variable, each element in this variable is a list of collocation points for a partition
+    :param p: velocity variable, same format as x, values are derivative Du at each point in x
+    :param v: bounded potential function
+    :return: value of Hamiltonian on (x, p), same shape as x
+    """
+    assert len(x) == len(q)
+
+    result = []
+    for i in range(len(x)):
+        result.append(q[i] ** 2 / 2 + v(x[i]))
+
+    return result
+
+
+def evaluate_RFM_1d(models, w, points):
+    """
+    Given RFM models on each partition and a trained set of weights, evaluate the model on every point in each partition
+    :param models: RFM models
+    :param w: trained weights
+    :param points: Collocation points for each partition
+    :return: evaluated numerical solution
+    """
+    numerical_values = []
+    for k in range(len(points)):
+        out_total = None
+        for m in range(len(models)):
+            out = models[m](points[k])
+            values = out.detach().numpy()
+            if out_total is None:
+                out_total = values
+            else:
+                out_total = np.concatenate((out_total, values),axis=1)
+
+        numerical_value = np.dot(np.array(out_total), w)
+        numerical_values.extend(numerical_value)
+    return numerical_values

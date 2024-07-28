@@ -2,16 +2,12 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import RFM_rep, weights_init, init_local_RFM1d, get_differential_1d
-from utils.config import INTERVAL_LENGTH
-
-# fix random seed
-torch.set_default_dtype(torch.float64)
+from utils.utils_1d import get_differential_1d, init_rfm
 
 
 def solve_fokker_planck_1d(M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, moore=False):
     """
-    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for Ergodic 1d MFG
+    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic 1d MFG
 
     The equation is:
     $-\varepsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
@@ -35,7 +31,7 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, mo
     models, collocation_pts = init_rfm(M_p, J_n, Q)
 
     dq = get_differential_1d(q, collocation_pts)
-    #TODO: specify how q should be passed
+
     A, f = get_lstsq_system_fp(models, collocation_pts, M_p, J_n, Q, eps, q, dq)
 
     # Solve
@@ -46,37 +42,6 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, mo
         w = lstsq(A, f)[0]
 
     return models, collocation_pts, w
-
-
-def V(x):
-    """
-    Analytical bounded potential function
-
-    The associated Hamiltonian is H(x, p) = 1/2 |p|^2 - V(x), where p is the variable for Dx
-    """
-    return np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x)
-
-
-def init_rfm(M_p, J_n, Q):
-    """
-    Define the RFM model on each partition and their collocation points.
-    :param M_p: number of partitions
-    :param J_n: number of RF basis functions in a partition
-    :param Q: number of collocation points inside a partition
-    :return: 1. a list of local NNs, one for each partition
-             2. a list of M_p tensors, each tensor contains collocation points, with shape (Q+1, 1).
-    """
-    models = []
-    points = []
-    for k in range(M_p):
-        # Define RFM model in each partition, in 1d, partition is just an interval [x_min, x_max]
-        x_min = INTERVAL_LENGTH / M_p * k
-        x_max = INTERVAL_LENGTH / M_p * (k + 1)
-        models.append(init_local_RFM1d(J_n, x_min, x_max))
-
-        # Within each partition, get the boundary points (1d) as a column vector
-        points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
-    return models, points
 
 
 def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
@@ -92,6 +57,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
     :param dq: the numerical derivative of policy q
     :return: matrix A and vector f for the linear least square system
     """
+
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
     A_boundary = np.zeros([2, M_p * J_n])
@@ -124,7 +90,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
 
                 # In d=1, div(u*q) = d(u*q)/dx = du/dx * q + u * dq/dx
                 # TODO: Check if the dimension matches
-                div = grads[i] * q[k] + values[:, i] * dq[k]
+                div.append(grads[i] * q[k] + values[:, i] * dq[k])
 
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
