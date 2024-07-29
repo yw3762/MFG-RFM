@@ -60,7 +60,10 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
 
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
-    A_boundary = np.zeros([2, M_p * J_n])
+
+    # TODO: For the moment, we assume non-negativity constraint in RFM also follows from normalization constraint,
+    #   We should check if this is true afterward
+    A_constraints = np.zeros([2, M_p * J_n]) # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
 
     for k in range(M_p):
@@ -73,7 +76,9 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
             grads = []
             grads_2 = []
 
+            # Compute divergence term div(q m)
             div = []
+
             for i in range(J_n):
                 # Compute gradient of i-th basis function
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
@@ -99,15 +104,20 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
             # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
             Lu = - eps * grads_2 - div
 
-            # TODO: Think of a way to impose the three conditions
-            #  1. (Probability density) $\int m(x)dx = 1$
-            #  2. (Non-negativity) $m \geq 0$
-            #  3. (Periodicity) $m(0) = m(1)$
+            # Specifying A_pde
+            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :]
 
-            # TODO: Specify A_pde
-            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q,:]
+            # Periodicity constraint, evaluate on boundary
+            if k == 0:
+                A_constraints[0, m * J_n: (m + 1) * J_n] = values[0, :]
+            elif k == M_p - 1:
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
 
-            # TODO: Specify constraints (none in FP)
+            # Normalization constraint:
+            for i in range(Q):
+                A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
 
-    A = np.concatenate((A_pde, A_boundary), axis=0)
+    A = np.concatenate((A_pde, A_constraints), axis=0)
+    f[-1] = 1 * M_p * Q  # normalize to 1
+
     return A, f
