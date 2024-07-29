@@ -5,7 +5,7 @@ from scipy.linalg import lstsq, pinv
 from utils.utils_1d import get_differential_1d, init_rfm
 
 
-def solve_fokker_planck_1d(M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, moore=False):
+def solve_fokker_planck_1d(M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=False):
     """
     This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic 1d MFG
 
@@ -36,8 +36,8 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, mo
 
     # Solve
     if moore:
-        inv_coeff_mat = pinv(A)  # moore-penrose inverse, shape: (n_units,n_colloc+2)
-        w = np.matmul(inv_coeff_mat, f)
+        A_inv = pinv(A)  # moore-penrose inverse, shape: (n_units,n_colloc+2)
+        w = np.matmul(A_inv, f)
     else:
         w = lstsq(A, f)[0]
 

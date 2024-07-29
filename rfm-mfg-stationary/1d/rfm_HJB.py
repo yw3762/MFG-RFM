@@ -5,7 +5,7 @@ from scipy.linalg import lstsq, pinv
 from utils.utils_1d import init_rfm, lagrangian_1d, evaluate_RFM_1d
 
 
-def solve_hjb_1d(models_fp, w_fp, M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=False, moore=False):
+def solve_hjb_1d(models_fp, w_fp, M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=False):
     """
     This function solves the HJB PDE in second step of policy iteration algorithm for ergodic 1d MFG
 
@@ -33,13 +33,12 @@ def solve_hjb_1d(models_fp, w_fp, M_p, J_n, Q, q, dq, eps=0.3, tau=1e-8, plot=Fa
     """
     models_hjb, collocation_pts = init_rfm(M_p, J_n, Q)
 
-
     A, f = get_lstsq_system_HJB(models_hjb, collocation_pts, models_fp, w_fp, M_p, J_n, Q, eps, q)
 
     # Solve
     if moore:
-        inv_coeff_mat = pinv(A)  # moore-penrose inverse, shape: (n_units,n_colloc+2)
-        w = np.matmul(inv_coeff_mat, f)
+        A_inv = pinv(A)  # moore-penrose inverse, shape: (n_units,n_colloc+2)
+        w = np.matmul(A_inv, f)
     else:
         w = lstsq(A, f)[0]
 
@@ -65,7 +64,7 @@ def get_lstsq_system_HJB(models, points, models_fp, w_fp, M_p, J_n, Q, eps, q, l
 
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
-    A_boundary = np.zeros([2, M_p * J_n])
+    A_constraints = np.zeros([2, M_p * J_n])
     f = np.zeros([M_p * Q + 2, 1])
 
     for k in range(M_p):
@@ -99,20 +98,27 @@ def get_lstsq_system_HJB(models, points, models_fp, w_fp, M_p, J_n, Q, eps, q, l
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
             q_du = np.array(q_du).T
-
             Lq = lagrangian_1d(points[k], q[k])
 
             Lu = - eps * grads_2 + q_du - Lq
 
-            # TODO: Think of a way to impose the two conditions
-            #  1. (Centered) $\int m(x)dx = 0$
-            #  2. (Periodicity) $u(0) = u(1)$
-
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] - lam
+
+            # Periodicity constraint, evaluate on boundary
+            if k == 0:
+                A_constraints[0, m * J_n: (m + 1) * J_n] = values[0, :]
+            elif k == M_p - 1:
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
+
+            # Normalization constraint:
+            for i in range(Q):
+                A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
 
         # The f-side of discretized Lu=f system
         m = evaluate_RFM_1d(models_fp, w_fp, points)
-        f[k*Q:(k+1)*Q,:] = m ** 2 # The coupling term is F(m) = m^2
+        f[k * Q:(k + 1) * Q, :] = m ** 2  # The coupling term is F(m) = m^2
 
+    A = np.concatenate((A_pde, A_constraints), axis=0)
+    f[-1] = 0  # Normalize to 0
 
-    return
+    return A, f
