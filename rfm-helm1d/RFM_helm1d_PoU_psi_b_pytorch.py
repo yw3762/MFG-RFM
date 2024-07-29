@@ -174,20 +174,20 @@ def cal_matrix(models,points,M_p,J_n,Q):
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
-            if k == 0 and m==k:
+            if k == 0 and m == k:
                 A_2[0, :J_n] = values[0,:]
-            elif k == M_p - 1 and m==k:
+            elif k == M_p - 1 and m == k:
                 A_2[1, -J_n:] = values[-1,:]
 
         # get the true values for f's
         true_f = Lu_f(points[k].detach().numpy(), lamb).reshape([(Q + 1),1])
-        f[k*Q:(k + 1)*Q,: ] = true_f[:Q]
+        f[k*Q:(k + 1)*Q, :] = true_f[:Q]
     A = np.concatenate((A_1,A_2),axis=0)
 
     # initial conditions
-    f[M_p*Q,:] = anal_u(0.)
-    f[M_p*Q+1,:] = anal_u(8.)
-    return(A,f)
+    f[M_p*Q, :] = anal_u(0.)
+    f[M_p*Q+1, :] = anal_u(8.)
+    return A, f
 
 
 # calculate the l^{inf}-norm and l^{2}-norm error for u,v,p
