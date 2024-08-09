@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import random
+import matplotlib.pyplot as plt
 
-from config import INTERVAL_LENGTH
 from utils.config import INTERVAL_LENGTH
 
 
@@ -28,7 +28,7 @@ def weights_init(m):
 
 def init_local_RFM1d(J_n, x_min, x_max):
     """
-    Initialize RFM network on an 1d domain, i.e. the interval [x_min, x_max].
+    Initialize RFM network on an mfg_1d domain, i.e. the interval [x_min, x_max].
     :param J_n:
     :param x_min:
     :param x_max:
@@ -48,7 +48,7 @@ def init_local_RFM1d(J_n, x_min, x_max):
 
 def get_differential_1d(f, points, method="center"):
     """
-    Numerically compute derivatives of f(x)
+    Numerically compute us of f(x)
 
     :param f: function values evaluated at each point, same shape as points. f must be periodic in the domain
     :param points: Partitions of domain, each partition contains a list of collocation points uniformly selected.
@@ -63,16 +63,16 @@ def get_differential_1d(f, points, method="center"):
     df = np.zeros((k, n))
 
     # Check input points have coinciding boundary
-    for i in range(len(points)-1):
-        assert points[i][-1] == points[i+1][1]
+    for i in range(len(points) - 1):
+        assert points[i][-1] == points[i + 1][1]
 
     if method == "center":
         # f'(x) = (f(x+h) - f(x-h))/2h
-        divisor = 2*points[1][0] - 2*points[0][0] # 2h
+        divisor = 2 * points[1][0] - 2 * points[0][0]  # 2h
 
         for i in range(k):
-            for j in range(1, n-1):
-                df[i][j] = (f[i][j+1] - f[i][j-1]) / divisor
+            for j in range(1, n - 1):
+                df[i][j] = (f[i][j + 1] - f[i][j - 1]) / divisor
 
         # Periodicity condition
         for i in range(k):
@@ -87,10 +87,10 @@ class RFM_rep(nn.Module):
     def __init__(self, in_features, J_n, x_max, x_min):
         super(RFM_rep, self).__init__()
         self.in_features = in_features  # num input features
-        self.hidden_features = J_n      # width of hidden layer
-        self.J_n = J_n                  # J_n is the number of local RF functions
-        self.x_min = x_min              # x_{nj} - r_{nj}
-        self.x_max = x_max              # x_{nj} + r_{nj}
+        self.hidden_features = J_n  # width of hidden layer
+        self.J_n = J_n  # J_n is the number of local RF functions
+        self.x_min = x_min  # x_{nj} - r_{nj}
+        self.x_max = x_max  # x_{nj} + r_{nj}
         self.a = 2.0 / (x_max - x_min)  # this is the 1/r_{nj}
         self.x_0 = (x_max + x_min) / 2  # center of partition.
 
@@ -145,18 +145,18 @@ def init_rfm(M_p, J_n, Q):
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
-    :return: 1. a list of local NNs, one for each partition
-             2. a list of M_p tensors, each tensor contains collocation points, with shape (Q+1, 1).
+    :return: models: a list of local NNs, one for each partition
+             points: a list of M_p tensors, each tensor contains collocation points, with shape (Q+1, 1).
     """
     models = []
     points = []
     for k in range(M_p):
-        # Define RFM model in each partition, in 1d, partition is just an interval [x_min, x_max]
+        # Define RFM model in each partition, in mfg_1d, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
         models.append(init_local_RFM1d(J_n, x_min, x_max))
 
-        # Within each partition, get the boundary points (1d) as a column vector
+        # Within each partition, get the boundary points (mfg_1d) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 
@@ -174,7 +174,7 @@ def hamiltonian_1d(x, p, V):
     """
     Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
 
-    Note in 1d, |Du|**2 = (du/dx)**2
+    Note in mfg_1d, |Du|**2 = (du/dx)**2
     :param x: spatial variable, each element in this variable is a list of collocation points for a partition
     :param p: velocity variable, same format as x, values are derivative Du at each point in x
     :param V: bounded potential function
@@ -184,7 +184,7 @@ def hamiltonian_1d(x, p, V):
 
     result = []
     for i in range(len(x)):
-        result.append(p[i]**2 / 2 - V(x[i]))
+        result.append(p[i] ** 2 / 2 - V(x[i]))
 
     return result
 
@@ -195,7 +195,7 @@ def lagrangian_1d(x, q, v=V):
 
     By simple calculation, we see our lagrangian L(x, q) = 1/2 * |q| ** 2 + V(x)
 
-    Note in 1d, |Du|**2 = (du/dx)**2
+    Note in mfg_1d, |Du|**2 = (du/dx)**2
     :param x: spatial variable, each element in this variable is a list of collocation points for a partition
     :param p: velocity variable, same format as x, values are derivative Du at each point in x
     :param v: bounded potential function
@@ -205,30 +205,143 @@ def lagrangian_1d(x, q, v=V):
 
     result = []
     for i in range(len(x)):
-        result.append(q[i] ** 2 / 2 + v(x[i]))
+        # Check if q[i] is a tensor and requires gradients
+        if isinstance(q[i], torch.Tensor):
+            qi = q[i].detach() if q[i].requires_grad else q[i]
+        else:
+            qi = q[i]
+
+        # Similarly, check for x[i]
+        if isinstance(x[i], torch.Tensor):
+            xi = x[i].detach() if x[i].requires_grad else x[i]
+        else:
+            xi = x[i]
+        result.append(qi ** 2 / 2 + v(xi))
 
     return result
 
 
 def evaluate_RFM_1d(models, w, points):
     """
-    Given RFM models on each partition and a trained set of weights, evaluate the model on every point in each partition
+    Given RFM models and a trained set of weights, evaluate the model on every point
+    :param models: list of RFM models, for each partition
+    :param w: a list trained weights, for each partition
+    :param points: the points we want to evaluate the model on
+    :return: evaluated numerical solution, same shape as points
+    """
+    numerical_values = []
+
+    out_total = None
+    for m in range(len(models)):
+        out = models[m](points)
+        values = out.detach().numpy()
+        if out_total is None:
+            out_total = values
+        else:
+            out_total = np.concatenate((out_total, values), axis=1)
+
+    numerical_values = np.dot(np.array(out_total), w.reshape(-1, 1))
+    return numerical_values
+
+
+def differentiate_RFM_1d(models, w, points):
+    """
+    Given RFM models on each partition and a trained set of weights, evaluate the model's derivative on every point in
+    each partition
     :param models: RFM models
     :param w: trained weights
     :param points: Collocation points for each partition
-    :return: evaluated numerical solution
+    :return: evaluated derivative
     """
-    numerical_values = []
+    derivatives = []
     for k in range(len(points)):
         out_total = None
         for m in range(len(models)):
             out = models[m](points[k])
+
+            grads = []
+            for i in range(len(out[0])):
+                g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
+                                          grad_outputs=torch.ones_like(out[:, i]),
+                                          create_graph=True, retain_graph=True)[0]
+                grads.append(g_1.squeeze().detach().numpy())
+
+        grads = np.array(grads).T
+
+        derivative = np.dot(grads, w[k])
+        derivatives.append(derivative)
+    return derivatives
+
+
+def second_derivative_RFM_1d(models, w, points):
+    """
+    Given RFM models on each partition and a trained set of weights, evaluate the model's first and second order
+    derivative on every point in each partition
+    :param models: RFM models
+    :param w: trained weights
+    :param points: Collocation points for each partition
+    :return: evaluated first and second order derivatives
+    """
+    derivatives = []
+    second_derivatives = []
+    for k in range(len(points)):
+        out_total = None
+        for m in range(len(models)):
+            out = models[m](points[k])
+
+            grads = []
+            grads_2 = []
+            for i in range(len(out[0])):
+                g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
+                                          grad_outputs=torch.ones_like(out[:, i]),
+                                          create_graph=True, retain_graph=True)[0]
+                grads.append(g_1.squeeze().detach().numpy())
+
+                g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
+                                          grad_outputs=torch.ones_like(out[:, i]),
+                                          create_graph=False, retain_graph=True)[0]
+                grads_2.append(g_2.squeeze().detach().numpy())
+
+        grads = np.array(grads).T
+        grads_2 = np.array(grads_2).T
+
+        derivative = np.dot(grads, w[k])
+        derivatives.append(derivative)
+
+        second_derivative = np.dot(grads_2, w[k])
+        second_derivatives.append(second_derivative)
+    return derivatives, second_derivative
+
+
+
+def plot_RFM_1d(models, w, label, total_Q=1000):
+    """
+
+    :param models:
+    :param w:
+    :param points:
+    :param total_Q:
+    :return:
+    """
+    M_p = len(models)
+    test_Q = int(total_Q / M_p)
+    numerical_values = []
+    for k in range(M_p):
+        points = torch.tensor(np.linspace(INTERVAL_LENGTH / M_p * k, INTERVAL_LENGTH / M_p * (k + 1), test_Q + 1),
+                                   requires_grad=False).reshape([-1, 1])
+        out_total = None
+        for m in range(M_p):
+            out = models[m](points)
             values = out.detach().numpy()
             if out_total is None:
                 out_total = values
             else:
-                out_total = np.concatenate((out_total, values),axis=1)
-
-        numerical_value = np.dot(np.array(out_total), w)
+                out_total = np.concatenate((out_total, values), axis=1)
+        numerical_value = np.dot(np.array(out_total), w.reshape(-1, 1))
         numerical_values.extend(numerical_value)
-    return numerical_values
+    x = [(INTERVAL_LENGTH / M_p) * i / test_Q for i in range(M_p * (test_Q + 1))]
+    plt.figure()
+    plt.plot(x, numerical_values, label=label, color='darkblue', linestyle='--')
+    plt.legend()
+    plt.show()
+    plt.savefig('./numerical_solution.pdf', dpi=100)

@@ -2,12 +2,12 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import get_differential_1d, init_rfm
+from utils.utils_1d import evaluate_RFM_1d, get_differential_1d, differentiate_RFM_1d, second_derivative_RFM_1d
 
 
-def solve_fokker_planck_1d(M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=False):
+def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
     """
-    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic 1d MFG
+    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic mfg_1d MFG
 
     The equation is:
     $-\varepsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
@@ -16,7 +16,11 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=
         2. (Non-negativity) $m \geq 0$
         3. (Periodicity) $m(0) = m(1)$
 
-    We identify the 1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
+    We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
+    :param models:
+    :param collocs:
+    :param models_q:
+    :param w_q:
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
@@ -28,11 +32,9 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=
     :param moore: whether to use Moore-Penrose inverse or not
     :return: ...
     """
-    models, collocation_pts = init_rfm(M_p, J_n, Q)
+    q, dq = second_derivative_RFM_1d(models_u, w_u, collocs)
 
-    dq = get_differential_1d(q, collocation_pts)
-
-    A, f = get_lstsq_system_fp(models, collocation_pts, M_p, J_n, Q, eps, q, dq)
+    A, f = get_lstsq_system_fp(models, collocs, models_u, w_u, M_p, J_n, Q, eps, q, dq)
 
     # Solve
     if moore:
@@ -41,14 +43,17 @@ def solve_fokker_planck_1d(M_p, J_n, Q, q, eps=0.3, tau=1e-8, plot=False, moore=
     else:
         w = lstsq(A, f)[0]
 
-    return models, collocation_pts, w
+    w = w.reshape((M_p, Q))
+    return w
 
 
-def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
+def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, eps, q, dq):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
     :param models: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}
     :param points: Each element in this variable is a list of collocation points for a partition
+    :param models_u:
+    :param w_u:
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in each partition, each RF basis function is a RFM_Rep object
     :param Q: number of collocation points inside a partition
@@ -63,7 +68,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
 
     # TODO: For the moment, we assume non-negativity constraint in RFM also follows from normalization constraint,
     #   We should check if this is true afterward
-    A_constraints = np.zeros([2, M_p * J_n]) # one for boundary, one for normalization -> 2 in total
+    A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
 
     for k in range(M_p):
@@ -94,7 +99,6 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, eps, q, dq):
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 # In d=1, div(u*q) = d(u*q)/dx = du/dx * q + u * dq/dx
-                # TODO: Check if the dimension matches
                 div.append(grads[i] * q[k] + values[:, i] * dq[k])
 
             grads = np.array(grads).T

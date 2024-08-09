@@ -126,7 +126,7 @@ def pre_define(M_p,J_n,Q):
             param.requires_grad = False     # Freeze the layers, i.e. fix parameters
         models.append(model)
 
-        # Within each partition, get the boundary pts (1d) as a column vector
+        # Within each partition, get the boundary pts (mfg_1d) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
     return models, points
 
@@ -180,7 +180,8 @@ def cal_matrix(models,points,M_p,J_n,Q):
                 A_2[1, -J_n:] = values[-1,:]
 
         # get the true values for f's
-        true_f = Lu_f(points[k].detach().numpy(), lamb).reshape([(Q + 1),1])
+        true_f = Lu_f(points[k].detach().numpy(), lamb)
+        true_f = true_f.reshape([(Q + 1), 1])
         f[k*Q:(k + 1)*Q, :] = true_f[:Q]
     A = np.concatenate((A_1,A_2),axis=0)
 
