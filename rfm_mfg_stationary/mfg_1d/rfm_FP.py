@@ -34,7 +34,7 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     """
     q, dq = second_derivative_RFM_1d(models_u, w_u, collocs)
 
-    A, f = get_lstsq_system_fp(models, collocs, models_u, w_u, M_p, J_n, Q, eps, q, dq)
+    A, f = get_lstsq_system_fp(models, collocs, models_u, w_u, M_p, J_n, Q, q, dq, eps)
 
     # Solve
     if moore:
@@ -43,11 +43,11 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     else:
         w = lstsq(A, f)[0]
 
-    w = w.reshape((M_p, Q))
+    w = w.reshape((M_p, J_n))
     return w
 
 
-def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, eps, q, dq):
+def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
     :param models: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}

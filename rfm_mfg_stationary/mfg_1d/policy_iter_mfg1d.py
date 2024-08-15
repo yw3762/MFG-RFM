@@ -20,7 +20,7 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, R=100
     :return: optimal policy q
     """
 
-    # fix random seed
+    # fix datatype
     torch.set_default_dtype(torch.float64)
 
     # Initialize solutions for FP and HJB with zero weights
@@ -30,6 +30,7 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, R=100
     w_fp = np.zeros((M_p_fp, J_n_fp))
 
     for _ in range(n_iters):
+        print("Iteration {}".format(_ + 1))
         w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, models_hjb, w_hjb, M_p_fp, J_n_fp, Q_fp)
         w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
 

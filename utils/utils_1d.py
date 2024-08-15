@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 import random
 import matplotlib.pyplot as plt
+from typing import List
+import numpy.typing as npt
+
 
 from utils.config import INTERVAL_LENGTH
 
@@ -26,9 +29,20 @@ def weights_init(m):
         nn.init.uniform_(m.bias, a=-1, b=1)
 
 
-def init_local_RFM1d(J_n, x_min, x_max):
+def weights_init_debug(m):
     """
-    Initialize RFM network on an mfg_1d domain, i.e. the interval [x_min, x_max].
+    Randomly initialize parameters in the Conv2d or Linear layer.
+    :param m:  the given layer
+    :return:   None
+    """
+    if isinstance(m, (nn.Conv2d, nn.Linear)):
+        m.weight.data.fill_(1)
+        m.bias.data.fill_(0)
+
+
+def init_local_RFM1d(J_n, x_min, x_max, debug=False):
+    """
+    Initialize RFM network on a mfg_1d domain, i.e. the interval [x_min, x_max].
     :param J_n:
     :param x_min:
     :param x_max:
@@ -37,7 +51,10 @@ def init_local_RFM1d(J_n, x_min, x_max):
     model = RFM_rep(in_features=1, J_n=J_n, x_min=x_min, x_max=x_max)
 
     # Randomly initialize parameter (uniform[-1,1]), in double precision
-    model = model.apply(weights_init)
+    if debug:
+        model = model.apply(weights_init_debug)
+    else:
+        model = model.apply(weights_init)
     model = model.double()
 
     # Freeze the randomly initialized parameters
@@ -119,9 +136,9 @@ class RFM_rep(nn.Module):
         y = self.a * (x - self.x_0)
 
         # pass the normalized variable into hidden-layer
-        print('Before passing to hidden layer, y is', y)
+        # print('Before passing to hidden layer, y is', y)
         y = self.hidden_layer(y)
-        print('After passing to hidden layer, y is', y)
+        # print('After passing to hidden layer, y is', y)
 
         # y_i are the PoU w.r.t each location of x
         y0 = 0
@@ -139,7 +156,7 @@ class RFM_rep(nn.Module):
             return d0 * y0 + d1 * y1 + d2 * y2 + d3 * y3 + d4 * y4
 
 
-def init_rfm(M_p, J_n, Q):
+def init_rfm(M_p, J_n, Q, debug=False):
     """
     Define the RFM model on each partition and their collocation points.
     :param M_p: number of partitions
@@ -154,9 +171,9 @@ def init_rfm(M_p, J_n, Q):
         # Define RFM model in each partition, in mfg_1d, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
-        models.append(init_local_RFM1d(J_n, x_min, x_max))
+        models.append(init_local_RFM1d(J_n, x_min, x_max, debug))
 
-        # Within each partition, get the boundary points (mfg_1d) as a column vector
+        # Within each partition, get the collocation points (mfg_1d) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 
@@ -197,7 +214,7 @@ def lagrangian_1d(x, q, v=V):
 
     Note in mfg_1d, |Du|**2 = (du/dx)**2
     :param x: spatial variable, each element in this variable is a list of collocation points for a partition
-    :param p: velocity variable, same format as x, values are derivative Du at each point in x
+    :param q: dual variable
     :param v: bounded potential function
     :return: value of Hamiltonian on (x, p), same shape as x
     """
@@ -255,43 +272,49 @@ def differentiate_RFM_1d(models, w, points):
     """
     derivatives = []
     for k in range(len(points)):
-        out_total = None
+        derivative = None
         for m in range(len(models)):
-            out = models[m](points[k])
+            out = models[m](points[k])  # for each point in points[k], output J_n values
 
             grads = []
-            for i in range(len(out[0])):
+            for i in range(len(out[0])):  # initialize
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
                 grads.append(g_1.squeeze().detach().numpy())
 
-        grads = np.array(grads).T
+            grads = np.array(grads).T
 
-        derivative = np.dot(grads, w[k])
+            if derivative is None:
+                derivative = np.dot(grads, w[m])
+            else:
+                derivative += np.dot(grads, w[m])
+
         derivatives.append(derivative)
+
     return derivatives
 
 
-def second_derivative_RFM_1d(models, w, points):
+def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor]):
     """
     Given RFM models on each partition and a trained set of weights, evaluate the model's first and second order
     derivative on every point in each partition
     :param models: RFM models
     :param w: trained weights
     :param points: Collocation points for each partition
-    :return: evaluated first and second order derivatives
+    :return: evaluated first and second order derivatives, same shape as points
     """
     derivatives = []
     second_derivatives = []
     for k in range(len(points)):
-        out_total = None
+        derivative = None
+        second_derivative = None
         for m in range(len(models)):
-            out = models[m](points[k])
+            out = models[m](points[k])  # for each point in points[k], output J_n values
 
             grads = []
             grads_2 = []
-            for i in range(len(out[0])):
+            for i in range(len(out[0])):    # initialize
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
@@ -302,21 +325,28 @@ def second_derivative_RFM_1d(models, w, points):
                                           create_graph=False, retain_graph=True)[0]
                 grads_2.append(g_2.squeeze().detach().numpy())
 
-        grads = np.array(grads).T
-        grads_2 = np.array(grads_2).T
+            grads = np.array(grads).T
+            grads_2 = np.array(grads_2).T
 
-        derivative = np.dot(grads, w[k])
+            if derivative is None:
+                derivative = np.dot(grads, w[m])
+            else:
+                derivative += np.dot(grads, w[m])
+
+            if second_derivative is None:
+                second_derivative = np.dot(grads_2, w[m])
+            else:
+                second_derivative += np.dot(grads_2, w[m])
+
         derivatives.append(derivative)
-
-        second_derivative = np.dot(grads_2, w[k])
         second_derivatives.append(second_derivative)
-    return derivatives, second_derivative
+
+    return derivatives, second_derivatives
 
 
 
 def plot_RFM_1d(models, w, label, total_Q=1000):
     """
-
     :param models:
     :param w:
     :param points:

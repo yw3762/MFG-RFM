@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
+from utils.utils_1d import set_seed, lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
 
 
 def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
@@ -42,7 +42,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     else:
         w = lstsq(A, f)[0]
 
-    w = w.reshape((M_p, Q))
+    w = w.reshape((M_p, J_n))
     return w
 
 
@@ -73,9 +73,9 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
         for m in range(M_p):
             # Evaluate the colloction points of partition-k on RFM of U_m (HJB) and M_m (FP)
             out_hjb = models_hjb[m](points[k])
-            values = out_hjb.detach().numpy()
+            values_hjb = out_hjb.detach().numpy()
             out_fp = models_fp[m](points[k])
-            values = out_fp.detach().numpy()
+            values_fp = out_fp.detach().numpy()
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
             grads_hjb = []
@@ -110,13 +110,13 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] = values[0, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] = values_hjb[0, :]
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= values_hjb[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
         M = evaluate_RFM_1d(models_fp, w_fp, points[k]) # should be of shape (Q+1, 1)
