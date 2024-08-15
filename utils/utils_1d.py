@@ -345,7 +345,7 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
 
 
 
-def plot_RFM_1d(models, w, label, total_Q=1000):
+def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH):
     """
     :param models:
     :param w:
@@ -357,7 +357,7 @@ def plot_RFM_1d(models, w, label, total_Q=1000):
     test_Q = int(total_Q / M_p)
     numerical_values = []
     for k in range(M_p):
-        points = torch.tensor(np.linspace(INTERVAL_LENGTH / M_p * k, INTERVAL_LENGTH / M_p * (k + 1), test_Q + 1),
+        points = torch.tensor(np.linspace(interval_length / M_p * k, interval_length / M_p * (k + 1), test_Q + 1),
                                    requires_grad=False).reshape([-1, 1])
         out_total = None
         for m in range(M_p):
@@ -369,7 +369,7 @@ def plot_RFM_1d(models, w, label, total_Q=1000):
                 out_total = np.concatenate((out_total, values), axis=1)
         numerical_value = np.dot(np.array(out_total), w.reshape(-1, 1))
         numerical_values.extend(numerical_value)
-    x = [(INTERVAL_LENGTH / M_p) * i / test_Q for i in range(M_p * (test_Q + 1))]
+    x = [(interval_length / M_p) * i / test_Q for i in range(M_p * (test_Q + 1))]
     plt.figure()
     plt.plot(x, numerical_values, label=label, color='darkblue', linestyle='--')
     plt.legend()
