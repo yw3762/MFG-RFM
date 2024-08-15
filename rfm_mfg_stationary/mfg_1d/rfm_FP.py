@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import evaluate_RFM_1d, get_differential_1d, differentiate_RFM_1d, second_derivative_RFM_1d
+from utils.utils_1d import second_derivative_RFM_1d
 
 
 def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
@@ -19,8 +19,8 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
     :param models:
     :param collocs:
-    :param models_q:
-    :param w_q:
+    :param models_u:
+    :param w_u:
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
@@ -67,7 +67,8 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
     A_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # TODO: For the moment, we assume non-negativity constraint in RFM also follows from normalization constraint,
-    #   We should check if this is true afterward
+    #   We should check if this is true afterward.
+    # NOTE: It seems to be true
     A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
 

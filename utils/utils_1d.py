@@ -3,9 +3,8 @@ import torch
 import torch.nn as nn
 import random
 import matplotlib.pyplot as plt
-from typing import List
+from typing import List, Callable
 import numpy.typing as npt
-
 
 from utils.config import INTERVAL_LENGTH
 
@@ -314,7 +313,7 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
 
             grads = []
             grads_2 = []
-            for i in range(len(out[0])):    # initialize
+            for i in range(len(out[0])):  # initialize
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
@@ -344,12 +343,10 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
     return derivatives, second_derivatives
 
 
-
 def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH):
     """
     :param models:
     :param w:
-    :param points:
     :param total_Q:
     :return:
     """
@@ -358,7 +355,7 @@ def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH)
     numerical_values = []
     for k in range(M_p):
         points = torch.tensor(np.linspace(interval_length / M_p * k, interval_length / M_p * (k + 1), test_Q + 1),
-                                   requires_grad=False).reshape([-1, 1])
+                              requires_grad=False).reshape([-1, 1])
         out_total = None
         for m in range(M_p):
             out = models[m](points)
@@ -375,3 +372,137 @@ def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH)
     plt.legend()
     plt.show()
     plt.savefig('./numerical_solution.pdf', dpi=100)
+
+
+def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w: torch.Tensor) -> Callable[[torch.Tensor], torch.Tensor]:
+    """
+    Factory function to create an RFM function from given models and weights
+
+    Args:
+        models (List[Callable[[torch.Tensor], torch.Tensor]]): List of callable models.
+        w (torch.Tensor): Tensor of weights with shape (number_of_models, output_dim).
+
+    Returns:
+        Callable[[torch.Tensor], torch.Tensor]: A function that computes the weighted sum of model outputs.
+    """
+
+    def rfm_function(x):
+        return torch.sum(
+            torch.stack([
+                model(x) * torch.tensor(w[i, :], dtype=torch.float64)
+                for i, model in enumerate(models)
+            ]),
+            dim=(0, 2)
+        )
+    return rfm_function
+
+
+def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
+    """
+    Calculate error in Fokker-Planck equation solved w.r.t given HJB
+    :param models_fp: ...
+    :param w_fp: ...
+    :param models_hjb: ...
+    :param w_hjb: ...
+    :return:
+    """
+
+    # def u(x):
+    #     stacked = torch.stack([
+    #             model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
+    #             for i, model in enumerate(models_hjb)
+    #         ])
+    #     summed = torch.sum(stacked, dim=(0, 2))
+    #     return summed
+    #
+    # def m(x):
+    #     return torch.sum(
+    #         torch.stack([
+    #             model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
+    #             for i, model in enumerate(models_fp)
+    #         ]),
+    #         dim=(0, 2)
+    #     )
+
+    u = RFM_function_factory(models_hjb, w_hjb)
+    m = RFM_function_factory(models_fp, w_fp)
+
+    pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+
+    q = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0]
+    product = m(pts) * q
+    div = torch.autograd.grad(product, pts, grad_outputs=torch.ones_like(product))[0]
+
+    dm = torch.autograd.grad(m(pts).sum(), pts, create_graph=True)[0]
+    laplace = torch.autograd.grad(dm.sum(), pts, create_graph=True)[0]
+
+    error = - eps * laplace - div
+
+    # plot error
+    pts_np = pts.detach().numpy()
+    error_np = error.detach().numpy()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(pts_np, error_np, label='Error')
+    plt.xlabel('x')
+    plt.ylabel('Error')
+    plt.title('Fokker-Planck Error')
+    plt.legend()
+    plt.show()
+    return error
+
+
+def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
+    """
+    Calculate error in HJB equation solved w.r.t given Fokker-Planck
+    :param models_fp: ...
+    :param w_fp: ...
+    :param models_hjb: ...
+    :param w_hjb: ...
+    :return:
+    """
+    def u(x):
+        stacked = torch.stack([
+                model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
+                for i, model in enumerate(models_hjb)
+            ])
+        summed = torch.sum(stacked, dim=(0, 2))
+        return summed
+
+    def m(x):
+        return torch.sum(
+            torch.stack([
+                model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
+                for i, model in enumerate(models_fp)
+            ]),
+            dim=(0, 2)
+        )
+    # u = RFM_function_factory(models_hjb, w_hjb)
+    # m = RFM_function_factory(models_fp, w_fp)
+
+    pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+    q_x = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0].view(-1)
+
+    m_x = m(pts)
+
+    Fm_x = m_x ** 2
+
+    Lq = torch.stack(lagrangian_1d(pts, q_x)).view(-1)
+
+    Du = torch.autograd.grad(u(pts).sum(), pts, create_graph=True)[0].view(-1)
+    Laplace_u = torch.autograd.grad(Du.sum(), pts, create_graph=True)[0].view(-1)
+
+    error = - eps * Laplace_u + q_x * Du - Lq - Fm_x
+
+    # plot error
+    pts_np = pts.detach().numpy()
+    error_np = error.detach().numpy()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(pts_np, error_np, label='Error')
+    plt.xlabel('x')
+    plt.ylabel('Error')
+    plt.title('HJB Error')
+    plt.legend()
+    plt.show()
+    return error

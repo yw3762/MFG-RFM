@@ -119,7 +119,7 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
                 A_constraints[1, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
-        M = evaluate_RFM_1d(models_fp, w_fp, points[k]) # should be of shape (Q+1, 1)
+        M = evaluate_RFM_1d(models_fp, w_fp, points[k])  # should be of shape (Q+1, 1)
         f[k * Q:(k + 1) * Q, :] = (M ** 2)[:Q]  # The coupling term is F(m) = m^2
 
     A = np.concatenate((A_pde, A_constraints), axis=0)
