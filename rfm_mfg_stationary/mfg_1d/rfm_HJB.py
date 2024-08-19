@@ -59,8 +59,7 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
     :param Q: number of collocation points inside a partition
     :param eps: diffusion constant, i.e. the constant before Lagrangian in MFG system
     :param q: the policy in MFG system
-    :param dq: the numerical derivative of policy q
-    :param lam: the erdogic constant \lambda
+    :param lam: the ergodic constant \lambda
     :return: matrix A and vector f for the linear least square system
     """
 

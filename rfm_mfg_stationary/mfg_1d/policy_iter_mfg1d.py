@@ -34,9 +34,9 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     for _ in range(n_iters):
         print("Iteration {}".format(_ + 1))
         w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, models_hjb, w_hjb, M_p_fp, J_n_fp, Q_fp)
-        error_fp = calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb)
+        errors_fp.append(calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb))
 
         w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
-        error_hjb = calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb)
+        errors_hjb.append(calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb))
 
     return models_fp, w_fp, models_hjb, w_hjb
