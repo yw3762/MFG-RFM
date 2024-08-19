@@ -70,9 +70,6 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
 
     for k in range(M_p):
         for m in range(M_p):
-            # Compute the L(q) term, Lq[j] =  L(q) evaluted on points[k, j]
-            Lq = lagrangian_1d(points[k], q[k])
-
             # Evaluate the colloction points of partition-k on RFM of U_m (HJB) and M_m (FP)
             out_hjb = models_hjb[m](points[k])
             values_hjb = out_hjb.detach().numpy()
@@ -104,8 +101,8 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
             q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
 
             # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
-            # Lu[j, i] =  - eps * f'_{mi}(points[k, j]) + f'_{mi}(points[k, j]) * q(points[k, j]) - L(q)(points[k,j])
-            Lu = - eps * grads_2_hjb + q_du - Lq  # shape=(Q+1, J_n)
+            # Lu[j, i] =  - eps * f'_{mi}(points[k, j]) + f'_{mi}(points[k, j]) * q(points[k, j])
+            Lu = - eps * grads_2_hjb + q_du  # shape=(Q+1, J_n)
 
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
 
@@ -120,8 +117,9 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                 A_constraints[1, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
-        M = evaluate_RFM_1d(models_fp, w_fp, points[k]) # should be of shape (Q+1, 1)
-        f[k * Q:(k + 1) * Q, :] = (M ** 2)[:Q]  # The coupling term is F(m) = m^2
+        Lq = lagrangian_1d(points[k], q[k])
+        Fm = evaluate_RFM_1d(models_fp, w_fp, points[k]) ** 2  # The coupling term is F(m) = m^2
+        f[k * Q:(k + 1) * Q, :] = (Fm + Lq)[:Q]
 
     A = np.concatenate((A_pde, A_constraints), axis=0)
     f[-1] = 0  # Normalize to 0
