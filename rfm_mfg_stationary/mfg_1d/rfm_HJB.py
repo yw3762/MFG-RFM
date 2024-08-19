@@ -84,7 +84,7 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                                           grad_outputs=torch.ones_like(out_hjb[:, i]),
                                           create_graph=True, retain_graph=True)[0]
                 # Remove dims of size 1, unrequire gradients, then convert to np.array
-                grads_hjb.append(g_1.squeeze().detach().numpy())
+                # grads_hjb.append(g_1.squeeze().detach().numpy())
 
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
@@ -93,9 +93,10 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                 grads_2_hjb.append(g_2.squeeze().detach().numpy())
 
                 # (grads_hjb[i] * q[k])(j) = f'_{mi}(points[k, j]) * q(points[k, j])
-                q_du.append(grads_hjb[i] * q[k])
+                # q_du.append(grads_hjb[i] * q[k])
+                q_du.append(g_1.squeeze().detach().numpy() * q[k])
 
-            grads_hjb = np.array(grads_hjb).T  # grads[j,i] = f'_{mi}(points[k, j])
+            # grads_hjb = np.array(grads_hjb).T  # grads[j,i] = f'_{mi}(points[k, j])
             grads_2_hjb = np.array(grads_2_hjb).T  # grads[j,i] = f''_{mi}(points[k, j])
             q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
 

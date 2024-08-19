@@ -303,39 +303,44 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
     :param points: Collocation points for each partition
     :return: evaluated first and second order derivatives, same shape as points
     """
+    u = RFM_function_factory(models, w)
     derivatives = []
     second_derivatives = []
     for k in range(len(points)):
-        derivative = None
-        second_derivative = None
-        for m in range(len(models)):
-            out = models[m](points[k])  # for each point in points[k], output J_n values
-
-            grads = []
-            grads_2 = []
-            for i in range(len(out[0])):  # initialize
-                g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
-                                          grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=True, retain_graph=True)[0]
-                grads.append(g_1.squeeze().detach().numpy())
-
-                g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
-                                          grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=False, retain_graph=True)[0]
-                grads_2.append(g_2.squeeze().detach().numpy())
-
-            grads = np.array(grads).T
-            grads_2 = np.array(grads_2).T
-
-            if derivative is None:
-                derivative = np.dot(grads, w[m])
-            else:
-                derivative += np.dot(grads, w[m])
-
-            if second_derivative is None:
-                second_derivative = np.dot(grads_2, w[m])
-            else:
-                second_derivative += np.dot(grads_2, w[m])
+        u_x = u(points[k])
+        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[0].squeeze()
+        second_derivative = torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative), create_graph=True)[0].squeeze()
+        # derivative = None
+        # second_derivative = None
+        #
+        # for m in range(len(models)):
+        #     out = models[m](points[k])  # for each point in points[k], output J_n values
+        #
+        #     grads = []
+        #     grads_2 = []
+        #     for i in range(len(out[0])):  # initialize
+        #         g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
+        #                                   grad_outputs=torch.ones_like(out[:, i]),
+        #                                   create_graph=True, retain_graph=True)[0]
+        #         grads.append(g_1.squeeze().detach().numpy())
+        #
+        #         g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
+        #                                   grad_outputs=torch.ones_like(out[:, i]),
+        #                                   create_graph=False, retain_graph=True)[0]
+        #         grads_2.append(g_2.squeeze().detach().numpy())
+        #
+        #     grads = np.array(grads).T
+        #     grads_2 = np.array(grads_2).T
+        #
+        #     if derivative is None:
+        #         derivative = np.dot(grads, w[m])
+        #     else:
+        #         derivative += np.dot(grads, w[m])
+        #
+        #     if second_derivative is None:
+        #         second_derivative = np.dot(grads_2, w[m])
+        #     else:
+        #         second_derivative += np.dot(grads_2, w[m])
 
         derivatives.append(derivative)
         second_derivatives.append(second_derivative)
@@ -371,10 +376,10 @@ def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH)
     plt.plot(x, numerical_values, label=label, color='darkblue', linestyle='--')
     plt.legend()
     plt.show()
-    plt.savefig('./numerical_solution.pdf', dpi=100)
 
 
-def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w: torch.Tensor) -> Callable[[torch.Tensor], torch.Tensor]:
+def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w: torch.Tensor) -> Callable[
+    [torch.Tensor], torch.Tensor]:
     """
     Factory function to create an RFM function from given models and weights
 
@@ -394,10 +399,11 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
             ]),
             dim=(0, 2)
         )
+
     return rfm_function
 
 
-def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
+def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
     """
     Calculate error in Fokker-Planck equation solved w.r.t given HJB
     :param models_fp: ...
@@ -430,29 +436,31 @@ def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
 
     q = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0]
-    product = m(pts) * q
-    div = torch.autograd.grad(product, pts, grad_outputs=torch.ones_like(product))[0]
+    mq = m(pts) * q
+    div = torch.autograd.grad(mq, pts, grad_outputs=torch.ones_like(mq))[0]
 
     dm = torch.autograd.grad(m(pts).sum(), pts, create_graph=True)[0]
     laplace = torch.autograd.grad(dm.sum(), pts, create_graph=True)[0]
 
     error = - eps * laplace - div
 
-    # plot error
-    pts_np = pts.detach().numpy()
-    error_np = error.detach().numpy()
+    if plot:
+        # plot error
+        pts_np = pts.detach().numpy()
+        error_np = error.detach().numpy()
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(pts_np, error_np, label='Error')
-    plt.xlabel('x')
-    plt.ylabel('Error')
-    plt.title('Fokker-Planck Error')
-    plt.legend()
-    plt.show()
+        plt.figure(figsize=(10, 6))
+        plt.plot(pts_np, error_np, label='Error')
+        plt.xlabel('x')
+        plt.ylabel('Error')
+        plt.title('Fokker-Planck Error')
+        plt.legend()
+        plt.show()
+
     return error
 
 
-def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
+def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
     """
     Calculate error in HJB equation solved w.r.t given Fokker-Planck
     :param models_fp: ...
@@ -461,24 +469,24 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
     :param w_hjb: ...
     :return:
     """
-    def u(x):
-        stacked = torch.stack([
-                model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
-                for i, model in enumerate(models_hjb)
-            ])
-        summed = torch.sum(stacked, dim=(0, 2))
-        return summed
-
-    def m(x):
-        return torch.sum(
-            torch.stack([
-                model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
-                for i, model in enumerate(models_fp)
-            ]),
-            dim=(0, 2)
-        )
-    # u = RFM_function_factory(models_hjb, w_hjb)
-    # m = RFM_function_factory(models_fp, w_fp)
+    # def u(x):
+    #     stacked = torch.stack([
+    #             model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
+    #             for i, model in enumerate(models_hjb)
+    #         ])
+    #     summed = torch.sum(stacked, dim=(0, 2))
+    #     return summed
+    #
+    # def m(x):
+    #     return torch.sum(
+    #         torch.stack([
+    #             model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
+    #             for i, model in enumerate(models_fp)
+    #         ]),
+    #         dim=(0, 2)
+    #     )
+    u = RFM_function_factory(models_hjb, w_hjb)
+    m = RFM_function_factory(models_fp, w_fp)
 
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
     q_x = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0].view(-1)
@@ -494,15 +502,17 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3):
 
     error = - eps * Laplace_u + q_x * Du - Lq - Fm_x
 
-    # plot error
-    pts_np = pts.detach().numpy()
-    error_np = error.detach().numpy()
+    if plot:
+        # plot error
+        pts_np = pts.detach().numpy()
+        error_np = error.detach().numpy()
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(pts_np, error_np, label='Error')
-    plt.xlabel('x')
-    plt.ylabel('Error')
-    plt.title('HJB Error')
-    plt.legend()
-    plt.show()
+        plt.figure(figsize=(10, 6))
+        plt.plot(pts_np, error_np, label='Error')
+        plt.xlabel('x')
+        plt.ylabel('Error')
+        plt.title('HJB Error')
+        plt.legend()
+        plt.show()
+
     return error

@@ -11,7 +11,8 @@ def test():
     Q_hjb, Q_fp = 100, 100
     n_iters = 20
 
-    models_fp, w_fp, models_hjb, w_hjb = solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters)
+    models_fp, w_fp, models_hjb, w_hjb = solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters,
+                                                                 intermetidate_plot=False)
 
     plot_RFM_1d(models_fp, w_fp, "m")
     plot_RFM_1d(models_hjb, w_hjb, "u")
