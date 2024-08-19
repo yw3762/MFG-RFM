@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import set_seed, lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
+from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
 
 
 def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
@@ -74,7 +74,6 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
             values_hjb = out_hjb.detach().numpy()
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
-            grads_hjb = []
             grads_2_hjb = []
             q_du = [] # Compute the (q * Du) term
 
@@ -83,8 +82,6 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                 g_1 = torch.autograd.grad(outputs=out_hjb[:, i], inputs=points[k],
                                           grad_outputs=torch.ones_like(out_hjb[:, i]),
                                           create_graph=True, retain_graph=True)[0]
-                # Remove dims of size 1, unrequire gradients, then convert to np.array
-                # grads_hjb.append(g_1.squeeze().detach().numpy())
 
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
@@ -92,11 +89,8 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                                           create_graph=False, retain_graph=True)[0]
                 grads_2_hjb.append(g_2.squeeze().detach().numpy())
 
-                # (grads_hjb[i] * q[k])(j) = f'_{mi}(points[k, j]) * q(points[k, j])
-                # q_du.append(grads_hjb[i] * q[k])
                 q_du.append((g_1.squeeze() * q[k]).detach().numpy())
 
-            # grads_hjb = np.array(grads_hjb).T  # grads[j,i] = f'_{mi}(points[k, j])
             grads_2_hjb = np.array(grads_2_hjb).T  # grads[j,i] = f''_{mi}(points[k, j])
             q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
 

@@ -100,9 +100,6 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
-                # Remove dims of size 1, unrequire gradients, then convert to np.array
-                # g_1_copy = g_1.squeeze().detach().numpy()  # g_1[j] = f'_{mi}(points[k,j])
-                # grads.append(g_1_copy)
 
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
@@ -111,14 +108,8 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'
-                # Note q[k,j] = q(points[k,j]), and dq[k,j] = q'(points[k,j])
-                #      values[j,i] = f_{mi}(points[k,j]), and g_1[j] = f'_{mi}(points[k,j])
-                # Therefore, div[i,j] = g_1[j] * q[k,j] + values[j,i] * dq[k,j] = div(f_{mi}*q) evaluated at points[k,j]
-                # div.append(g_1_copy * q[k] + values[:, i] * dq[k])
-
                 div.append((g_1.squeeze() * q[k] + out[:, i] * dq[k]).detach().numpy())
 
-            # grads = np.array(grads).T  # grads[j,i] = f'_{mi}(points[k, j])
             grads_2 = np.array(grads_2).T  # grads[j,i] = f''_{mi}(points[k, j])
             div = np.array(div).T  # div[j,i] = div(f_{mi}q)(points[k, j])
 
