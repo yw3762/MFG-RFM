@@ -94,7 +94,7 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
 
                 # (grads_hjb[i] * q[k])(j) = f'_{mi}(points[k, j]) * q(points[k, j])
                 # q_du.append(grads_hjb[i] * q[k])
-                q_du.append(g_1.squeeze().detach().numpy() * q[k])
+                q_du.append((g_1.squeeze() * q[k]).detach().numpy())
 
             # grads_hjb = np.array(grads_hjb).T  # grads[j,i] = f'_{mi}(points[k, j])
             grads_2_hjb = np.array(grads_2_hjb).T  # grads[j,i] = f''_{mi}(points[k, j])

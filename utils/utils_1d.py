@@ -269,28 +269,14 @@ def differentiate_RFM_1d(models, w, points):
     :param points: Collocation points for each partition
     :return: evaluated derivative
     """
+    u = RFM_function_factory(models, w)
     derivatives = []
     for k in range(len(points)):
-        derivative = None
-        for m in range(len(models)):
-            out = models[m](points[k])  # for each point in points[k], output J_n values
-
-            grads = []
-            for i in range(len(out[0])):  # initialize
-                g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
-                                          grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=True, retain_graph=True)[0]
-                grads.append(g_1.squeeze().detach().numpy())
-
-            grads = np.array(grads).T
-
-            if derivative is None:
-                derivative = np.dot(grads, w[m])
-            else:
-                derivative += np.dot(grads, w[m])
+        u_x = u(points[k])
+        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[
+            0].squeeze()
 
         derivatives.append(derivative)
-
     return derivatives
 
 
@@ -308,40 +294,11 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
     second_derivatives = []
     for k in range(len(points)):
         u_x = u(points[k])
-        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[0].squeeze()
-        second_derivative = torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative), create_graph=True)[0].squeeze()
-        # derivative = None
-        # second_derivative = None
-        #
-        # for m in range(len(models)):
-        #     out = models[m](points[k])  # for each point in points[k], output J_n values
-        #
-        #     grads = []
-        #     grads_2 = []
-        #     for i in range(len(out[0])):  # initialize
-        #         g_1 = torch.autograd.grad(outputs=out[:, i], inputs=points[k],
-        #                                   grad_outputs=torch.ones_like(out[:, i]),
-        #                                   create_graph=True, retain_graph=True)[0]
-        #         grads.append(g_1.squeeze().detach().numpy())
-        #
-        #         g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
-        #                                   grad_outputs=torch.ones_like(out[:, i]),
-        #                                   create_graph=False, retain_graph=True)[0]
-        #         grads_2.append(g_2.squeeze().detach().numpy())
-        #
-        #     grads = np.array(grads).T
-        #     grads_2 = np.array(grads_2).T
-        #
-        #     if derivative is None:
-        #         derivative = np.dot(grads, w[m])
-        #     else:
-        #         derivative += np.dot(grads, w[m])
-        #
-        #     if second_derivative is None:
-        #         second_derivative = np.dot(grads_2, w[m])
-        #     else:
-        #         second_derivative += np.dot(grads_2, w[m])
-
+        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[
+            0].squeeze()
+        second_derivative = \
+        torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative), create_graph=True)[
+            0].squeeze()
         derivatives.append(derivative)
         second_derivatives.append(second_derivative)
 
