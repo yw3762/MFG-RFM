@@ -33,7 +33,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     :return: ...
     """
     q = differentiate_RFM_1d(models_hjb, w_hjb, collocs)
-    A, f = get_lstsq_system_HJB(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, q, eps)
+    A, f = get_lstsq_system_HJB(models_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, q, eps)
 
     # Solve
     if moore:
@@ -46,11 +46,10 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     return w
 
 
-def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, eps, lam=0):
+def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, eps, lam=0):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
     :param models_hjb: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}
-    :param w_hjb: weights for HJB RFM from previous iteration
     :param points: Each element in this variable is a list of collocation points for a partition
     :param models_fp: the RFM solution models for Fokker-Planck PDE
     :param w_fp: the weights for Fokker-Planck RFM model
@@ -71,18 +70,18 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
 
     for k in range(M_p):
         for m in range(M_p):
+            # Compute the L(q) term, Lq[j] =  L(q) evaluted on points[k, j]
+            Lq = lagrangian_1d(points[k], q[k])
+
             # Evaluate the colloction points of partition-k on RFM of U_m (HJB) and M_m (FP)
             out_hjb = models_hjb[m](points[k])
             values_hjb = out_hjb.detach().numpy()
-            out_fp = models_fp[m](points[k])
-            values_fp = out_fp.detach().numpy()
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
             grads_hjb = []
             grads_2_hjb = []
+            q_du = [] # Compute the (q * Du) term
 
-            q_du = []
-            Lq = []
             for i in range(J_n):
                 # Compute gradient of i-th basis function
                 g_1 = torch.autograd.grad(outputs=out_hjb[:, i], inputs=points[k],
@@ -97,16 +96,18 @@ def get_lstsq_system_HJB(models_hjb, w_hjb, points, models_fp, w_fp, M_p, J_n, Q
                                           create_graph=False, retain_graph=True)[0]
                 grads_2_hjb.append(g_2.squeeze().detach().numpy())
 
+                # (grads_hjb[i] * q[k])(j) = f'_{mi}(points[k, j]) * q(points[k, j])
                 q_du.append(grads_hjb[i] * q[k])
 
-            grads_hjb = np.array(grads_hjb).T
-            grads_2_hjb = np.array(grads_2_hjb).T
-            q_du = np.array(q_du).T
-            Lq = lagrangian_1d(points[k], q[k])
+            grads_hjb = np.array(grads_hjb).T  # grads[j,i] = f'_{mi}(points[k, j])
+            grads_2_hjb = np.array(grads_2_hjb).T  # grads[j,i] = f''_{mi}(points[k, j])
+            q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
 
-            Lu = - eps * grads_2_hjb + q_du - Lq
+            # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
+            # Lu[j, i] =  - eps * f'_{mi}(points[k, j]) + f'_{mi}(points[k, j]) * q(points[k, j]) - L(q)(points[k,j])
+            Lu = - eps * grads_2_hjb + q_du - Lq  # shape=(Q+1, J_n)
 
-            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] - lam
+            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:

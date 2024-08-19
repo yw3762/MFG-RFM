@@ -75,7 +75,8 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
         for m in range(M_p):
             # Evaluate the colloction points of partition-k on RFM of U_m
             out = models[m](points[k])
-            values = out.detach().numpy()
+            # values[i,j] = f_{mj}(points[k,i]), where f_{mj} is feature function
+            values = out.detach().numpy()  # shape: (Q+1, J_n),
 
             # Compute first and second order derivative dm/dx and d^2m/dx^2
             grads = []
@@ -90,26 +91,31 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
                 # Remove dims of size 1, unrequire gradients, then convert to np.array
-                grads.append(g_1.squeeze().detach().numpy())
+                g_1_copy = g_1.squeeze().detach().numpy()  # g_1[j] = f'_{mi}(points[k,j])
+                grads.append(g_1_copy)
 
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=False, retain_graph=True)[0]
-                grads_2.append(g_2.squeeze().detach().numpy())
+                g_2_copy = g_2.squeeze().detach().numpy()
+                grads_2.append(g_2_copy)
 
-                # In d=1, div(u*q) = d(u*q)/dx = du/dx * q + u * dq/dx
-                div.append(grads[i] * q[k] + values[:, i] * dq[k])
+                # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'
+                # Note q[k,j] = q(points[k,j]), and dq[k,j] = q'(points[k,j])
+                #      values[j,i] = f_{mi}(points[k,j]), and g_1[j] = f'_{mi}(points[k,j])
+                # Therefore, div[i,j] = g_1[j] * q[k,j] + values[j,i] * dq[k,j] = div(f_{mi}*q) evaluated at points[k,j]
+                div.append(g_1_copy * q[k] + values[:, i] * dq[k])
 
-            grads = np.array(grads).T
-            grads_2 = np.array(grads_2).T
-            div = np.array(div).T
+            grads = np.array(grads).T  # grads[j,i] = f'_{mi}(points[k, j])
+            grads_2 = np.array(grads_2).T # grads[j,i] = f''_{mi}(points[k, j])
+            div = np.array(div).T  # div[j,i] = div(f_{mi}q)(points[k, j])
 
-            # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
-            Lu = - eps * grads_2 - div
+            # Impose PDE condition: Lm = -eps * dm^2/dx^2 - div(m * q)
+            Lm = - eps * grads_2 - div  # Lm[j,i] = Lm(points[k, j]) with i-th factor of m
 
             # Specifying A_pde
-            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :]
+            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm[:Q, :]
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
