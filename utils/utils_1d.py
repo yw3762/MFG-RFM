@@ -370,34 +370,18 @@ def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
     :return:
     """
 
-    # def u(x):
-    #     stacked = torch.stack([
-    #             model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
-    #             for i, model in enumerate(models_hjb)
-    #         ])
-    #     summed = torch.sum(stacked, dim=(0, 2))
-    #     return summed
-    #
-    # def m(x):
-    #     return torch.sum(
-    #         torch.stack([
-    #             model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
-    #             for i, model in enumerate(models_fp)
-    #         ]),
-    #         dim=(0, 2)
-    #     )
-
     u = RFM_function_factory(models_hjb, w_hjb)
     m = RFM_function_factory(models_fp, w_fp)
 
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
-
-    q = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0]
+    u_values = u(pts)
+    q = torch.autograd.grad(u_values, pts, grad_outputs=torch.ones_like(u_values), create_graph=True)[0].squeeze()
     mq = m(pts) * q
-    div = torch.autograd.grad(mq, pts, grad_outputs=torch.ones_like(mq))[0]
+    div = torch.autograd.grad(mq, pts, grad_outputs=torch.ones_like(mq))[0].squeeze()
 
-    dm = torch.autograd.grad(m(pts).sum(), pts, create_graph=True)[0]
-    laplace = torch.autograd.grad(dm.sum(), pts, create_graph=True)[0]
+    m_values = m(pts)
+    dm = torch.autograd.grad(m_values, pts, grad_outputs=torch.ones_like(m_values), create_graph=True)[0].squeeze()
+    laplace = torch.autograd.grad(dm, pts, grad_outputs=torch.ones_like(dm), create_graph=True)[0].squeeze()
 
     error = - eps * laplace - div
 
@@ -426,22 +410,6 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False)
     :param w_hjb: ...
     :return:
     """
-    # def u(x):
-    #     stacked = torch.stack([
-    #             model(x) * torch.tensor(w_hjb[i, :], dtype=torch.float64)
-    #             for i, model in enumerate(models_hjb)
-    #         ])
-    #     summed = torch.sum(stacked, dim=(0, 2))
-    #     return summed
-    #
-    # def m(x):
-    #     return torch.sum(
-    #         torch.stack([
-    #             model(x) * torch.tensor(w_fp[i, :], dtype=torch.float64)
-    #             for i, model in enumerate(models_fp)
-    #         ]),
-    #         dim=(0, 2)
-    #     )
     u = RFM_function_factory(models_hjb, w_hjb)
     m = RFM_function_factory(models_fp, w_fp)
 

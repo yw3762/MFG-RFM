@@ -119,7 +119,7 @@ def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
                 div.append((g_1.squeeze() * q[k] + out[:, i] * dq[k]).detach().numpy())
 
             # grads = np.array(grads).T  # grads[j,i] = f'_{mi}(points[k, j])
-            grads_2 = np.array(grads_2).T # grads[j,i] = f''_{mi}(points[k, j])
+            grads_2 = np.array(grads_2).T  # grads[j,i] = f''_{mi}(points[k, j])
             div = np.array(div).T  # div[j,i] = div(f_{mi}q)(points[k, j])
 
             # Impose PDE condition: Lm = -eps * dm^2/dx^2 - div(m * q)
