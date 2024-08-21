@@ -9,7 +9,7 @@ from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
 
 
-def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-8,
+def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6,
                             intermetidate_plot=False, random_init_q=False):
     """
     Solve the mfg_1d stationary mean-field game with policy iteration, in each iteration, the two PDE systems (FP, HJB)
@@ -37,7 +37,6 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
 
     w_fp = np.zeros((M_p_fp, J_n_fp))
 
-
     errors_fp = []
     constraints_fp = []
     update_l1_err_fp = []
@@ -47,6 +46,8 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     update_l1_err_hjb = []
     plot_RFM_1d(models_hjb, w_hjb, "u")
 
+    actual_n_iters = n_iters
+
     for _ in range(n_iters):
         print("Iteration {}".format(_ + 1))
         start_time = time.time()
@@ -54,12 +55,11 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, models_hjb, w_hjb, M_p_fp, J_n_fp, Q_fp)
         new_m = RFM_function_factory(models_fp, w_fp)
         finish_fp = time.time()
-        print(f"FP took: {finish_fp-start_time:.6f} seconds")
+        print(f"FP took: {finish_fp - start_time:.6f} seconds")
         errors_fp.append(calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, plot=intermetidate_plot))
         constraints_fp.append(constraint_test(models_fp, w_fp))
         update_l1_err_fp.append(update_l1_err_test(old_m, new_m))
         plot_RFM_1d(models_fp, w_fp, "m")
-
 
         start_time = time.time()
         old_w_hjb = w_hjb
@@ -73,15 +73,36 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         update_l1_err_hjb.append(update_l1_err_test(old_u, new_u))
         plot_RFM_1d(models_hjb, w_hjb, "u")
 
+        # Plotting u_1 to true u_1 together
+        if _ == 0:
+            n_pts = 2000
+            pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64).reshape([-1, 1])
+            u1_true = - 1 / (12 * eps) + pts / (2 * eps) + np.sin(2 * np.pi * pts) / (4 * eps * np.pi ** 2) + np.cos(
+                4 * np.pi * pts) / (16 * eps * np.pi ** 2) - pts ** 2 / (2 * eps)
+
+            plt.figure(figsize=(10, 6))
+            plt.plot(pts, u1_true, label='true u1')
+            plt.plot(pts, new_u(pts).detach().numpy(), label='numerical u1')
+            plt.xlabel('x')
+            plt.ylabel('u^1(x)')
+            plt.title('Numerical u^1 vs true u^1')
+            plt.legend()
+            plt.show()
+
+        # loop termination condition once accuracy is small
+        if update_l1_err_hjb[-1] < tau and update_l1_err_fp[-1] < tau:
+            actual_n_iters = _ + 1
+            break
+
     # plot cumulative error per iteration
     cumulative_errors_fp = []
     cumulative_errors_hjb = []
-    for i in range(n_iters):
+    for i in range(actual_n_iters):
         cumulative_errors_fp.append(errors_fp[i].sum().item())
         cumulative_errors_hjb.append(errors_hjb[i].sum().item())
     plt.figure(figsize=(10, 6))
-    plt.plot(range(n_iters), cumulative_errors_fp, label='FP-Error')
-    plt.plot(range(n_iters), cumulative_errors_hjb, label='HJB-Error')
+    plt.plot(range(actual_n_iters), cumulative_errors_fp, label='FP-Error')
+    plt.plot(range(actual_n_iters), cumulative_errors_hjb, label='HJB-Error')
     plt.xlabel('iterations')
     plt.ylabel('Error')
     plt.title('Cumulative Error of HJB and FP')
@@ -90,8 +111,8 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
 
     # plot L1 convergence by iteration
     plt.figure(figsize=(10, 6))
-    plt.plot(range(n_iters), update_l1_err_fp, label='FP-L1-Convergence')
-    plt.plot(range(n_iters), update_l1_err_hjb, label='HJB-L1-Convergence')
+    plt.plot(range(actual_n_iters), update_l1_err_fp, label='FP-L1-Convergence')
+    plt.plot(range(actual_n_iters), update_l1_err_hjb, label='HJB-L1-Convergence')
     plt.xlabel('iterations')
     plt.ylabel('L1 Error')
     plt.title('L1 convergence error of HJB and FP')
