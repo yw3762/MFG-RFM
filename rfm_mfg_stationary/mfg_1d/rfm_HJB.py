@@ -113,7 +113,9 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
         # The f-side of discretized Lu=f system
         Lq = lagrangian_1d(points[k], q[k])
         Fm = evaluate_RFM_1d(models_fp, w_fp, points[k]) ** 2  # The coupling term is F(m) = m^2
-        f[k * Q:(k + 1) * Q, :] = (Fm + Lq)[:Q]
+        summed = Fm + Lq
+        trimmed = summed[:Q]
+        f[k * Q:(k + 1) * Q, :] = trimmed
 
     A = np.concatenate((A_pde, A_constraints), axis=0)
     f[-1] = 0  # Normalize to 0

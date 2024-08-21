@@ -401,7 +401,7 @@ def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
     return error
 
 
-def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
+def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, eps=0.3, plot=False):
     """
     Calculate error in HJB equation solved w.r.t given Fokker-Planck
     :param models_fp: ...
@@ -411,10 +411,11 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False)
     :return:
     """
     u = RFM_function_factory(models_hjb, w_hjb)
+    old_u = RFM_function_factory(models_hjb, old_w_hjb)
     m = RFM_function_factory(models_fp, w_fp)
 
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
-    q_x = torch.autograd.grad(u(pts), pts, grad_outputs=torch.ones_like(u(pts)), create_graph=True)[0].view(-1)
+    q_x = torch.autograd.grad(old_u(pts), pts, grad_outputs=torch.ones_like(old_u(pts)), create_graph=True)[0].view(-1)
 
     m_x = m(pts)
 
