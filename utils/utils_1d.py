@@ -442,3 +442,25 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, eps=0.3, 
         plt.show()
 
     return error
+
+
+def constraint_test(models, w):
+    n_pts = 2000
+    f = RFM_function_factory(models, w)
+    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+
+    values = f(pts)
+    integral = (values.sum() / n_pts).item()
+
+    periodicity_err = (values[0] - values[-1]).item()
+
+    return integral, periodicity_err
+
+
+def update_l1_err_test(old_f, new_f):
+    n_pts = 2000
+    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+
+    diffs = torch.abs(old_f(pts) - new_f(pts))
+    l1_err = (diffs.sum() / n_pts).item()
+    return l1_err

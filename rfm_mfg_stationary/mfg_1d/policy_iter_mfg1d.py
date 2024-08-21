@@ -3,7 +3,8 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 
-from utils.utils_1d import init_rfm, calculate_error_fp, calculate_error_hjb, plot_RFM_1d
+from utils.utils_1d import init_rfm, calculate_error_fp, calculate_error_hjb, plot_RFM_1d, constraint_test, \
+    RFM_function_factory, update_l1_err_test
 from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
 
@@ -38,25 +39,38 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
 
 
     errors_fp = []
+    constraints_fp = []
+    update_l1_err_fp = []
+
     errors_hjb = []
+    constraints_hjb = []
+    update_l1_err_hjb = []
     plot_RFM_1d(models_hjb, w_hjb, "u")
 
     for _ in range(n_iters):
         print("Iteration {}".format(_ + 1))
         start_time = time.time()
+        old_m = RFM_function_factory(models_fp, w_fp)
         w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, models_hjb, w_hjb, M_p_fp, J_n_fp, Q_fp)
+        new_m = RFM_function_factory(models_fp, w_fp)
         finish_fp = time.time()
         print(f"FP took: {finish_fp-start_time:.6f} seconds")
         errors_fp.append(calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, plot=intermetidate_plot))
+        constraints_fp.append(constraint_test(models_fp, w_fp))
+        update_l1_err_fp.append(update_l1_err_test(old_m, new_m))
         plot_RFM_1d(models_fp, w_fp, "m")
+
 
         start_time = time.time()
         old_w_hjb = w_hjb
-        w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
+        old_u = RFM_function_factory(models_hjb, w_hjb)
+        w_hjb = solve_hjb_1d(models_hjb, old_w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
+        new_u = RFM_function_factory(models_hjb, w_hjb)
         finish_hjb = time.time()
         print(f"HJB took: {finish_hjb - start_time:.6f} seconds")
-        errors_hjb.append(calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, plot=True))
-
+        errors_hjb.append(calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, plot=intermetidate_plot))
+        constraints_hjb.append(constraint_test(models_hjb, w_hjb))
+        update_l1_err_hjb.append(update_l1_err_test(old_u, new_u))
         plot_RFM_1d(models_hjb, w_hjb, "u")
 
     # plot cumulative error per iteration
@@ -71,6 +85,16 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     plt.xlabel('iterations')
     plt.ylabel('Error')
     plt.title('Cumulative Error of HJB and FP')
+    plt.legend()
+    plt.show()
+
+    # plot L1 convergence by iteration
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(n_iters), update_l1_err_fp, label='FP-L1-Convergence')
+    plt.plot(range(n_iters), update_l1_err_hjb, label='HJB-L1-Convergence')
+    plt.xlabel('iterations')
+    plt.ylabel('L1 Error')
+    plt.title('L1 convergence error of HJB and FP')
     plt.legend()
     plt.show()
 
