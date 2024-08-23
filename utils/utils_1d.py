@@ -4,8 +4,8 @@ import torch.nn as nn
 import random
 import matplotlib.pyplot as plt
 from typing import List, Callable
-import numpy.typing as npt
 
+from utils.types import ErrorArray
 from utils.config import INTERVAL_LENGTH
 
 
@@ -119,7 +119,7 @@ class RFM_rep(nn.Module):
     def forward(self, x):
         """
         The input x will be pass through the network in the following ways:
-        1. Perform a change of variable x -> \tilde{x}, i.e. y in the code
+        1. Perform a change of variable x -> tilde{x}, i.e. y in the code
         2. Pass through the hidden layer (i.e. Linear layer + tanh), i.e. we obtain J_n RF functions \phi_nj(x)
         3. Glue the solution at x using partition of unity, i.e. we obtain
         """
@@ -280,7 +280,7 @@ def differentiate_RFM_1d(models, w, points):
     return derivatives
 
 
-def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor]):
+def second_derivative_RFM_1d(models, w: torch.Tensor, points: List[torch.Tensor]):
     """
     Given RFM models on each partition and a trained set of weights, evaluate the model's first and second order
     derivative on every point in each partition
@@ -305,32 +305,17 @@ def second_derivative_RFM_1d(models, w: npt.NDArray, points: List[torch.Tensor])
     return derivatives, second_derivatives
 
 
-def plot_RFM_1d(models, w, label, total_Q=1000, interval_length=INTERVAL_LENGTH):
+def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     """
-    :param models:
-    :param w:
-    :param total_Q:
+    :param f:
+    :param label:
+    :param n_pts:
     :return:
     """
-    M_p = len(models)
-    test_Q = int(total_Q / M_p)
-    numerical_values = []
-    for k in range(M_p):
-        points = torch.tensor(np.linspace(interval_length / M_p * k, interval_length / M_p * (k + 1), test_Q + 1),
-                              requires_grad=False).reshape([-1, 1])
-        out_total = None
-        for m in range(M_p):
-            out = models[m](points)
-            values = out.detach().numpy()
-            if out_total is None:
-                out_total = values
-            else:
-                out_total = np.concatenate((out_total, values), axis=1)
-        numerical_value = np.dot(np.array(out_total), w.reshape(-1, 1))
-        numerical_values.extend(numerical_value)
-    x = [(interval_length / M_p) * i / test_Q for i in range(M_p * (test_Q + 1))]
+    pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape([-1, 1])
+    fx = f(pts)
     plt.figure()
-    plt.plot(x, numerical_values, label=label, color='darkblue', linestyle='--')
+    plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
     plt.legend()
     plt.show()
 
@@ -351,7 +336,7 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
     def rfm_function(x):
         return torch.sum(
             torch.stack([
-                model(x) * torch.tensor(w[i, :], dtype=torch.float64)
+                model(x) * w[i, :].clone().detach().to(torch.float64)
                 for i, model in enumerate(models)
             ]),
             dim=(0, 2)
@@ -360,18 +345,13 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
     return rfm_function
 
 
-def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
+def calculate_error_fp(m, u, eps=0.3, plot=False):
     """
     Calculate error in Fokker-Planck equation solved w.r.t given HJB
-    :param models_fp: ...
-    :param w_fp: ...
-    :param models_hjb: ...
-    :param w_hjb: ...
+    :param m: ...
+    :param u: ...
     :return:
     """
-
-    u = RFM_function_factory(models_hjb, w_hjb)
-    m = RFM_function_factory(models_fp, w_fp)
 
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
     u_values = u(pts)
@@ -401,18 +381,14 @@ def calculate_error_fp(models_fp, w_fp, models_hjb, w_hjb, eps=0.3, plot=False):
     return error
 
 
-def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, eps=0.3, plot=False):
+def calculate_error_hjb(u, old_u, m, eps=0.3, plot=False):
     """
     Calculate error in HJB equation solved w.r.t given Fokker-Planck
-    :param models_fp: ...
-    :param w_fp: ...
-    :param models_hjb: ...
-    :param w_hjb: ...
+    :param u: ...
+    :param old_u: ...
+    :param m: ...
     :return:
     """
-    u = RFM_function_factory(models_hjb, w_hjb)
-    old_u = RFM_function_factory(models_hjb, old_w_hjb)
-    m = RFM_function_factory(models_fp, w_fp)
 
     pts = torch.tensor(np.linspace(0, 1, 1000), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
     q_x = torch.autograd.grad(old_u(pts), pts, grad_outputs=torch.ones_like(old_u(pts)), create_graph=True)[0].view(-1)
@@ -444,10 +420,9 @@ def calculate_error_hjb(models_fp, w_fp, models_hjb, w_hjb, old_w_hjb, eps=0.3, 
     return error
 
 
-def constraint_test(models, w):
+def constraint_test(f):
     n_pts = 2000
-    f = RFM_function_factory(models, w)
-    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=False).reshape([-1, 1])
 
     values = f(pts)
     integral = (values.sum() / n_pts).item()
@@ -459,8 +434,33 @@ def constraint_test(models, w):
 
 def update_l1_err_test(old_f, new_f):
     n_pts = 2000
-    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
+    pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=False).reshape([-1, 1])
 
     diffs = torch.abs(old_f(pts) - new_f(pts))
     l1_err = (diffs.sum() / n_pts).item()
     return l1_err
+
+
+def plot_errors(error_arr: ErrorArray, last_idx, label):
+    iterations = range(1, last_idx+1)
+
+    # plot cumulative error per iteration
+    # cumulative_errors = np.zeros(last_idx)
+    # for i in range(last_idx):
+    #     cumulative_errors[i] = error_arr[i].sum().item()
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(iterations, cumulative_errors, label=label+'Error')
+    # plt.xlabel('iterations')
+    # plt.ylabel('Error')
+    # plt.title('Cumulative Error of'+label)
+    # plt.legend()
+    # plt.show()
+
+    # plot L1 convergence by iteration
+    plt.figure(figsize=(10, 6))
+    plt.plot(iterations, [error_arr[i].errors['l1-error'] for i in iterations], label=label + 'L1-Convergence')
+    plt.xlabel('iterations')
+    plt.ylabel('L1 Error')
+    plt.title('L1 convergence error of' + label)
+    plt.legend()
+    plt.show()

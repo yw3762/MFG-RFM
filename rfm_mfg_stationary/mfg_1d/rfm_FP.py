@@ -6,12 +6,12 @@ from scipy.linalg import lstsq, pinv
 from utils.utils_1d import second_derivative_RFM_1d
 
 
-def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
+def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, moore=False):
     """
     This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic mfg_1d MFG
 
     The equation is:
-    $-\varepsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
+    $-\epsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
     subject to the condition:
         1. (Probability density) $\int m(x)dx = 1$
         2. (Non-negativity) $m \geq 0$
@@ -25,11 +25,7 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
-    :param q: the policy in MFG system
-    :param dq: the numerical derivative of policy q
     :param eps: diffusion constant, i.e. the constant before Lagrangian in MFG system
-    :param tau: convergence tolerance constant
-    :param plot: whether to plot the solution or oot
     :param moore: whether to use Moore-Penrose inverse or not
     :return: ...
     """
@@ -39,7 +35,7 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     print(f"second_diff took: {end_time-start_time:.6f} seconds")
 
     start_time = time.time()
-    A, f = get_lstsq_system_fp(models, collocs, models_u, w_u, M_p, J_n, Q, q, dq, eps)
+    A, f = get_lstsq_system_fp(models, collocs, M_p, J_n, Q, q, dq, eps)
     end_time = time.time()
     print(f"get_lstsq_system took: {end_time - start_time:.6f} seconds")
 
@@ -54,18 +50,16 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     print(f"Solve system took: {end_time - start_time:.6f} seconds")
 
     w = w.reshape((M_p, J_n))
-    return w
+    return torch.tensor(w)
 
 
-def get_lstsq_system_fp(models, points, models_u, w_u, M_p, J_n, Q, q, dq, eps):
+def get_lstsq_system_fp(models, points, M_p, J_n, Q, q, dq, eps):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
     :param models: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}
     :param points: Each element in this variable is a list of collocation points for a partition
-    :param models_u:
-    :param w_u:
     :param M_p: number of partitions
-    :param J_n: number of RF basis functions in each partition, each RF basis function is a RFM_Rep object
+    :param J_n: number of RF basis functions in each partition, each RF basis function is an RFM_Rep object
     :param Q: number of collocation points inside a partition
     :param eps: diffusion constant, i.e. the constant before Lagrangian in MFG system
     :param q: the policy in MFG system

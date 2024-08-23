@@ -5,12 +5,12 @@ from scipy.linalg import lstsq, pinv
 from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
 
 
-def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
+def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0.3, moore=False):
     """
     This function solves the HJB PDE in second step of policy iteration algorithm for ergodic mfg_1d MFG
 
     The equation is:
-    $-\varepsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
+    $-\epsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
     subject to the condition:
         1. (Probability density) $\int m(x)dx = 1$
         2. (Non-negativity) $m \geq 0$
@@ -27,8 +27,6 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
     :param eps: diffusion constant, i.e. the constant before Lagrangian in MFG system
-    :param tau: convergence tolerance constant
-    :param plot: whether to plot the solution or oot
     :param moore: whether to use Moore-Penrose inverse or not
     :return: ...
     """
@@ -43,7 +41,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
         w = lstsq(A, f)[0]
 
     w = w.reshape((M_p, J_n))
-    return w
+    return torch.tensor(w)
 
 
 def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, eps, lam=0):
@@ -54,7 +52,7 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
     :param models_fp: the RFM solution models for Fokker-Planck PDE
     :param w_fp: the weights for Fokker-Planck RFM model
     :param M_p: number of partitions
-    :param J_n: number of RF basis functions in each partition, each RF basis function is a RFM_Rep object
+    :param J_n: number of RF basis functions in each partition, each RF basis function is an RFM_Rep object
     :param Q: number of collocation points inside a partition
     :param eps: diffusion constant, i.e. the constant before Lagrangian in MFG system
     :param q: the policy in MFG system
