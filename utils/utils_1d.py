@@ -347,7 +347,7 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
     return rfm_function
 
 
-def calculate_error_fp(m, u, eps=0.3, plot=False):
+def residual_error_fp(m, u, eps=0.3, plot=False):
     """
     Calculate error in Fokker-Planck equation solved w.r.t given HJB
     :param m: ...
@@ -385,9 +385,9 @@ def calculate_error_fp(m, u, eps=0.3, plot=False):
     return error
 
 
-def calculate_error_hjb(u, old_u, m, eps=0.3, plot=False):
+def residual_error_hjb(u, old_u, m, eps=0.3, plot=False):
     """
-    Calculate error in HJB equation solved w.r.t given Fokker-Planck
+    Calculate residual error in HJB equation solved w.r.t given Fokker-Planck
     :param u: ...
     :param old_u: ...
     :param m: ...
@@ -480,9 +480,23 @@ def plot_errors(error_arr: ErrorArray, last_idx, label):
 
     # plot L1 convergence by iteration
     plt.figure(figsize=(10, 6))
-    plt.plot(iterations, [error_arr[i].errors['l1-error'] for i in iterations], label=label + 'L1-Convergence')
+    plt.plot(iterations, [error_arr[i].errors['l1-error'] for i in iterations], label=label + ' L1-Convergence')
     plt.xlabel('iterations')
     plt.ylabel('L1 Error')
-    plt.title('L1 convergence error of' + label)
+    plt.title('L1 convergence error of ' + label)
     plt.legend()
+    plt.show()
+
+
+def plot_by_iter(value, title, ylabel):
+    iterations = np.arange(1, len(value)+1)
+    plt.figure(figsize=(12, 6))
+    plt.plot(iterations, value, label=title, marker='o')
+    plt.scatter(iterations[-1], value[-1], color='red')
+    plt.xlabel('iterations')
+    plt.xticks(iterations)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.legend()
+    plt.text(iterations[-1], value[-1], f'({np.round(value[-1], 10)})', fontsize=10, ha='left', va='bottom')
     plt.show()

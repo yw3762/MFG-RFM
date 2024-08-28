@@ -275,7 +275,7 @@ def main(M_p, J_n, Q, plot=False, moore=False, eps=0.3):
         w = lstsq(A, f)[0]
 
     # test
-    return (test(models, M_p, J_n, Q, w, plot))
+    return test(models, M_p, J_n, Q, w, plot)
 
 
 if __name__ == '__main__':

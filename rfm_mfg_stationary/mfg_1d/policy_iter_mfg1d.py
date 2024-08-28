@@ -7,8 +7,8 @@ from typing import Callable, Any
 
 from classes.error_tracker import ErrorTracker1D
 from utils.types import create_error_array, ErrorArray
-from utils.utils_1d import init_rfm, calculate_error_fp, calculate_error_hjb, plot_RFM_1d, constraint_test, \
-    RFM_function_factory, update_l1_err_test, plot_errors
+from utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, plot_RFM_1d, constraint_test, \
+    RFM_function_factory, update_l1_err_test, plot_errors, plot_by_iter
 from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
 
@@ -71,13 +71,13 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     # Record all intermediate error data
     errors_fp: ErrorArray = create_error_array(n_iters + 1)
     errors_hjb: ErrorArray = create_error_array(n_iters + 1)
-    errors_system: ErrorArray = create_error_array(n_iters + 1)
+    system_residual = np.zeros(n_iters + 1)
 
     plot_RFM_1d(historical_u[0], "u^0")
 
     actual_n_iters = n_iters  # the number of total iteration (before termination of loop)
 
-    for curr_iter in range(1, n_iters + 1):
+    for curr_iter in range(1, n_iters+1):
         # Step (2)
         # Solve Fokker-Planck equation in policy iteration method
         print("Iteration {}".format(curr_iter))
@@ -89,11 +89,11 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         # Record solution and error for Fokker-Planck equation
         historical_m[curr_iter] = RFM_function_factory(models_fp, w_fp)
         errors_fp[curr_iter] = ErrorTracker1D(
-            calculate_error_fp(historical_m[curr_iter], historical_u[curr_iter - 1], plot=intermediate_plot),
+            residual_error_fp(historical_m[curr_iter], historical_u[curr_iter-1], plot=intermediate_plot),
             *constraint_test(historical_m[curr_iter]),  # * for tuple unpacking in constructor call
-            update_l1_err_test(historical_m[curr_iter - 1], historical_m[curr_iter])
+            update_l1_err_test(historical_m[curr_iter-1], historical_m[curr_iter])
         )
-        plot_RFM_1d(historical_m[curr_iter], "m^" + str(curr_iter))
+        # plot_RFM_1d(historical_m[curr_iter], "m^" + str(curr_iter))
 
         # Step (3)
         # Solve HJB Equation in Policy iteration method
@@ -105,14 +105,18 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         # Record solution and error for HJB equation
         historical_u[curr_iter] = RFM_function_factory(models_hjb, w_hjb)
         errors_hjb[curr_iter] = ErrorTracker1D(
-            calculate_error_hjb(historical_u[curr_iter], historical_u[curr_iter - 1], historical_m[curr_iter],
-                                plot=intermediate_plot),
+            residual_error_hjb(historical_u[curr_iter], historical_u[curr_iter-1], historical_m[curr_iter],
+                               plot=intermediate_plot),
             *constraint_test(historical_u[curr_iter]),  # * for tuple unpacking in constructor call
-            update_l1_err_test(historical_u[curr_iter - 1], historical_u[curr_iter])
+            update_l1_err_test(historical_u[curr_iter-1], historical_u[curr_iter])
         )
-        plot_RFM_1d(historical_u[curr_iter], "u^" + str(curr_iter))
+        # plot_RFM_1d(historical_u[curr_iter], "u^" + str(curr_iter))
 
-        # TODO: Compute MFG system residual
+        # if curr_iter == 1:  # Plot u^1 vs true u^1 which can be computed explicitly
+        #     plot_u1(historical_u[1], eps)
+
+        # Compute MFG system residual
+        system_residual[curr_iter] = torch.sum(torch.sqrt(errors_hjb[curr_iter].errors['residual'] **2 + errors_fp[curr_iter].errors['residual']**2))
 
         # loop termination condition once accuracy is small
         if should_terminate(historical_u[curr_iter], historical_u[curr_iter - 1], tau):
@@ -122,19 +126,23 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     plot_errors(errors_fp, actual_n_iters, label="FP")
     plot_errors(errors_hjb, actual_n_iters, label="HJB")
 
+    plot_by_iter(system_residual[1:actual_n_iters+1], "MFG system Residual vs iterations", "MFG System L2 error")
+
+    return historical_m[-1], historical_u[-1]
+
+
+def plot_u1(u1, eps):
     # Plotting u_1 to true u_1 together
-    n_pts = 2000
+    n_pts = 1000
     pts = torch.linspace(0, 1, n_pts, dtype=torch.float64).reshape(-1, 1)
     u1_true = - 1 / (12 * eps) + pts / (2 * eps) + np.sin(2 * np.pi * pts) / (4 * eps * np.pi ** 2) + np.cos(
         4 * np.pi * pts) / (16 * eps * np.pi ** 2) - pts ** 2 / (2 * eps)
 
     plt.figure(figsize=(10, 6))
     plt.plot(pts, u1_true, label='true u1')
-    plt.plot(pts, (historical_u[1])(pts).detach().numpy(), label='numerical u1')
+    plt.plot(pts, u1(pts).detach().numpy(), label='numerical u1')
     plt.xlabel('x')
     plt.ylabel('u^1(x)')
     plt.title('Numerical u^1 vs true u^1')
     plt.legend()
     plt.show()
-
-    return historical_m[-1], historical_u[-1]
