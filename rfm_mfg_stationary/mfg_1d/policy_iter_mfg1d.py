@@ -23,9 +23,10 @@ def should_terminate(curr_u, prev_u, tau, n_pts=1000):
     :return: if the loop should terminate
     """
     x = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
-    prev_q = torch.autograd.grad(prev_u(x), x, grad_outputs=torch.ones_like(prev_u(x)), create_graph=False)[0].view(-1)
-    curr_q = torch.autograd.grad(curr_u(x), x, grad_outputs=torch.ones_like(curr_u(x)), create_graph=False)[0].view(-1)
-    return torch.trapz(torch.abs(prev_q - curr_q), x) < tau
+    prev_q = torch.autograd.grad(prev_u(x), x, grad_outputs=torch.ones_like(prev_u(x)))[0].view(-1)
+    curr_q = torch.autograd.grad(curr_u(x), x, grad_outputs=torch.ones_like(curr_u(x)))[0].view(-1)
+    abs_diff = torch.abs(prev_q - curr_q)
+    return torch.trapz(abs_diff, x.view(-1)) < tau
 
 
 def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6,

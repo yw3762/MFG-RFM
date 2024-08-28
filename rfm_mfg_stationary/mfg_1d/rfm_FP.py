@@ -95,7 +95,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, q, dq, eps):
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=False, retain_graph=True)[0]
+                                          retain_graph=True)[0]
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'

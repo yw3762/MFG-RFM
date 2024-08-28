@@ -175,7 +175,7 @@ def cal_matrix(models, points, M_p, J_n, Q, eps=0.3):
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=False, retain_graph=True)[0]
+                                          retain_graph=True)[0]
                 grads_2.append(g_2.squeeze().detach().numpy())
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T

@@ -84,7 +84,7 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
                                           grad_outputs=torch.ones_like(out_hjb[:, i]),
-                                          create_graph=False, retain_graph=True)[0]
+                                          retain_graph=True)[0]
                 grads_2_hjb.append(g_2.squeeze().detach().numpy())
 
                 q_du.append((g_1.squeeze() * q[k]).detach().numpy())

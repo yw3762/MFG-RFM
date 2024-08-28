@@ -275,7 +275,7 @@ def differentiate_RFM_1d(models, w, points):
     derivatives = []
     for k in range(len(points)):
         u_x = u(points[k])
-        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[
+        derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x))[
             0].squeeze()
 
         derivatives.append(derivative)
@@ -299,7 +299,7 @@ def second_derivative_RFM_1d(models, w: torch.Tensor, points: List[torch.Tensor]
         derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[
             0].squeeze()
         second_derivative = \
-        torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative), create_graph=True)[
+        torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative))[
             0].squeeze()
         derivatives.append(derivative)
         second_derivatives.append(second_derivative)
@@ -365,7 +365,7 @@ def calculate_error_fp(m, u, eps=0.3, plot=False):
 
     m_values = m(pts)
     dm = torch.autograd.grad(m_values, pts, grad_outputs=torch.ones_like(m_values), create_graph=True)[0].squeeze()
-    laplace = torch.autograd.grad(dm, pts, grad_outputs=torch.ones_like(dm), create_graph=True)[0].squeeze()
+    laplace = torch.autograd.grad(dm, pts, grad_outputs=torch.ones_like(dm))[0].squeeze()
 
     error = - eps * laplace - div
 

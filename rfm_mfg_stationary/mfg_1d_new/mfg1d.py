@@ -40,7 +40,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, u, eps):
 
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=points[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
-                                          create_graph=False, retain_graph=True)[0]
+                                        retain_graph=True)[0]
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 div.append(g_1.squeeze().detach().numpy() * q[k] + values[:, i] * dq[k])
