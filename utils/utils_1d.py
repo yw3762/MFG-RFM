@@ -445,6 +445,24 @@ def update_l1_err_test(old_f, new_f):
     return l1_err
 
 
+def l1_norm(f, g, n_pts=2000):
+    x = torch.linspace(0, 1, n_pts)
+    abs_diff = torch.abs(f(x) - g(x))
+    return torch.trapz(abs_diff, x)
+
+
+def l2_norm(f, g, n_pts=2000):
+    x = torch.linspace(0, 1, n_pts)
+    diff_squared = (f(x) - g(x)) **2
+    return torch.sqrt(torch.trapz(diff_squared, x))
+
+
+def sup_norm(f, g, n_pts=2000):
+    x = torch.linspace(0, 1, n_pts)
+    diff_squared = (f(x) - g(x)) **2
+    return torch.sqrt(torch.trapz(diff_squared, x))
+
+
 def plot_errors(error_arr: ErrorArray, last_idx, label):
     iterations = range(1, last_idx+1)
 
