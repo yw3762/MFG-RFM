@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import random
 import matplotlib.pyplot as plt
-from typing import List, Callable
+from typing import List, Callable, Tuple
 
 from utils.types import ErrorArray
 from utils.config import INTERVAL_LENGTH
@@ -299,8 +299,8 @@ def second_derivative_RFM_1d(models, w: torch.Tensor, points: List[torch.Tensor]
         derivative = torch.autograd.grad(u_x, points[k], grad_outputs=torch.ones_like(u_x), create_graph=True)[
             0].squeeze()
         second_derivative = \
-        torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative))[
-            0].squeeze()
+            torch.autograd.grad(derivative, points[k], grad_outputs=torch.ones_like(derivative))[
+                0].squeeze()
         derivatives.append(derivative)
         second_derivatives.append(second_derivative)
 
@@ -314,7 +314,8 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     :param n_pts:
     :return:
     """
-    pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape([-1, 1])
+    pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape(
+        [-1, 1])
     fx = f(pts)
     plt.figure()
     plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
@@ -345,6 +346,31 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
         )
 
     return rfm_function
+
+
+def diff_RFM_function(f: Callable[[torch.Tensor], torch.Tensor]) -> Callable[[torch.Tensor], torch.Tensor]:
+    def df(x: torch.Tensor) -> torch.Tensor:
+        x = x.clone().detach().requires_grad_(True)  # Ensure x requires grad
+        y = f(x)
+        y.backward(torch.ones_like(y))
+        return x.grad
+
+    return df
+
+
+def second_diff_RFM_function(f: Callable[[torch.Tensor], torch.Tensor]) -> Tuple[
+    Callable[[torch.Tensor], torch.Tensor], Callable[[torch.Tensor], torch.Tensor]]:
+    df = diff_RFM_function(f)
+
+    def d2f(x: torch.Tensor) -> torch.Tensor:
+        x = x.clone().detach().requires_grad_(True)  # Ensure x requires grad
+        y = f(x)
+        y.backward(torch.ones_like(y), create_graph=True)
+        grad_1st = x.grad.clone()
+        grad_1st.backward(torch.ones_like(grad_1st))
+        return x.grad
+
+    return df, d2f
 
 
 def residual_error_fp(m, u, eps=0.3, plot=False):
@@ -453,18 +479,18 @@ def l1_norm(f, g, n_pts=2000):
 
 def l2_norm(f, g, n_pts=2000):
     x = torch.linspace(0, 1, n_pts)
-    diff_squared = (f(x) - g(x)) **2
+    diff_squared = (f(x) - g(x)) ** 2
     return torch.sqrt(torch.trapz(diff_squared, x))
 
 
 def sup_norm(f, g, n_pts=2000):
     x = torch.linspace(0, 1, n_pts)
-    diff_squared = (f(x) - g(x)) **2
+    diff_squared = (f(x) - g(x)) ** 2
     return torch.sqrt(torch.trapz(diff_squared, x))
 
 
 def plot_errors(error_arr: ErrorArray, last_idx, label):
-    iterations = range(1, last_idx+1)
+    iterations = range(1, last_idx + 1)
 
     # plot cumulative error per iteration
     # cumulative_errors = np.zeros(last_idx)
@@ -489,7 +515,7 @@ def plot_errors(error_arr: ErrorArray, last_idx, label):
 
 
 def plot_by_iter(value, title, ylabel):
-    iterations = np.arange(1, len(value)+1)
+    iterations = np.arange(1, len(value) + 1)
     plt.figure(figsize=(12, 6))
     plt.plot(iterations, value, label=title, marker='o')
     plt.scatter(iterations[-1], value[-1], color='red')

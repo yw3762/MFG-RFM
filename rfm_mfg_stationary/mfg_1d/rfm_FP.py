@@ -3,10 +3,10 @@ import time
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import second_derivative_RFM_1d
+from utils.utils_1d import second_derivative_RFM_1d, RFM_function_factory
 
 
-def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, moore=False):
+def solve_fokker_planck_1d(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, moore=False):
     """
     This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic mfg_1d MFG
 
@@ -18,10 +18,11 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
         3. (Periodicity) $m(0) = m(1)$
 
     We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
+
     :param models:
     :param collocs:
-    :param models_u:
-    :param w_u:
+    :param dq_func:
+    :param q_func:
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
@@ -30,7 +31,8 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     :return: ...
     """
     start_time = time.time()
-    q, dq = second_derivative_RFM_1d(models_u, w_u, collocs)
+    q = [q_func(collocs[i]).view(-1) for i in range(len(collocs))]
+    dq = [dq_func(collocs[i]).view(-1) for i in range(len(collocs))]
     end_time = time.time()
     print(f"second_diff took: {end_time-start_time:.6f} seconds")
 
@@ -46,8 +48,9 @@ def solve_fokker_planck_1d(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3,
     else:
         w = lstsq(A, f)[0]
 
-    w = w.reshape((M_p, J_n))
-    return torch.tensor(w)
+    w = torch.tensor(w.reshape((M_p, J_n)))
+    solution = RFM_function_factory(models, w)
+    return solution, w
 
 
 def get_lstsq_system_fp(models, points, M_p, J_n, Q, q, dq, eps):

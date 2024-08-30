@@ -8,12 +8,12 @@ from typing import Callable, Any
 from classes.error_tracker import ErrorTracker1D
 from utils.types import create_error_array, ErrorArray
 from utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, plot_RFM_1d, constraint_test, \
-    RFM_function_factory, update_l1_err_test, plot_errors, plot_by_iter
+    RFM_function_factory, update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function
 from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
 
 
-def should_terminate(curr_u, prev_u, tau, n_pts=1000):
+def should_terminate(curr_u, prev_u, curr_q_anal, prev_q_anal, tau, n_pts=1000):
     """
     Determine whether the iteration should terminate by computing L1 norm of policies
     :param curr_u: numerical solution of u
@@ -25,6 +25,9 @@ def should_terminate(curr_u, prev_u, tau, n_pts=1000):
     x = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=True).reshape([-1, 1])
     prev_q = torch.autograd.grad(prev_u(x), x, grad_outputs=torch.ones_like(prev_u(x)))[0].view(-1)
     curr_q = torch.autograd.grad(curr_u(x), x, grad_outputs=torch.ones_like(curr_u(x)))[0].view(-1)
+    prev_q_discrete = prev_q_anal(x)
+    curr_q_discrete = curr_q_anal(x)
+
     abs_diff = torch.abs(prev_q - curr_q)
     return torch.trapz(abs_diff, x.view(-1)) < tau
 
@@ -64,9 +67,11 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     # Record all intermediate solution (as functions)
     historical_m: npt.NDArray[Callable[[Any], Any]] = np.empty(n_iters + 1, dtype=object)
     historical_u: npt.NDArray[Callable[[Any], Any]] = np.empty(n_iters + 1, dtype=object)
+    historical_q: npt.NDArray[Callable[[Any], Any]] = np.empty(n_iters + 1, dtype=object)
 
     historical_m[0] = RFM_function_factory(models_fp, w_fp)
     historical_u[0] = RFM_function_factory(models_fp, w_hjb)
+    historical_q[0], dq = second_diff_RFM_function(historical_u[0])
 
     # Record all intermediate error data
     errors_fp: ErrorArray = create_error_array(n_iters + 1)
@@ -78,25 +83,21 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     actual_n_iters = n_iters  # the number of total iteration (before termination of loop)
 
     for curr_iter in range(1, n_iters+1):
-        # Step (2)
-        # Solve Fokker-Planck equation in policy iteration method
+        # Step (2): Solve Fokker-Planck equation in policy iteration method
         print("Iteration {}".format(curr_iter))
         start_time = time.time()
-        w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, models_hjb, w_hjb, M_p_fp, J_n_fp, Q_fp)
+        historical_m[curr_iter], w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, historical_q[curr_iter-1], dq, M_p_fp, J_n_fp, Q_fp)
         finish_fp = time.time()
         print(f"FP took: {finish_fp - start_time:.6f} seconds")
 
-        # Record solution and error for Fokker-Planck equation
-        historical_m[curr_iter] = RFM_function_factory(models_fp, w_fp)
+        # Calculate error for Fokker-Planck equation
         errors_fp[curr_iter] = ErrorTracker1D(
             residual_error_fp(historical_m[curr_iter], historical_u[curr_iter-1], plot=intermediate_plot),
             *constraint_test(historical_m[curr_iter]),  # * for tuple unpacking in constructor call
             update_l1_err_test(historical_m[curr_iter-1], historical_m[curr_iter])
         )
-        # plot_RFM_1d(historical_m[curr_iter], "m^" + str(curr_iter))
 
-        # Step (3)
-        # Solve HJB Equation in Policy iteration method
+        # Step (3): Solve HJB Equation in Policy iteration method
         start_time = time.time()
         w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
         finish_hjb = time.time()
@@ -118,8 +119,11 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         # Compute MFG system residual
         system_residual[curr_iter] = torch.sum(torch.sqrt(errors_hjb[curr_iter].errors['residual'] **2 + errors_fp[curr_iter].errors['residual']**2))
 
+        # Step (4): Compute policy
+        historical_q[curr_iter], dq = second_diff_RFM_function(historical_u[curr_iter])
+
         # loop termination condition once accuracy is small
-        if should_terminate(historical_u[curr_iter], historical_u[curr_iter - 1], tau):
+        if should_terminate(historical_u[curr_iter], historical_u[curr_iter - 1], historical_q[curr_iter], historical_q[curr_iter-1], tau):
             actual_n_iters = curr_iter
             break
 
