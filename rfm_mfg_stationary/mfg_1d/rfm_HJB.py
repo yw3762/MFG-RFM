@@ -5,7 +5,7 @@ from scipy.linalg import lstsq, pinv
 from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
 
 
-def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0.3, moore=False):
+def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=False):
     """
     This function solves the HJB PDE in second step of policy iteration algorithm for ergodic mfg_1d MFG
 
@@ -30,8 +30,8 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     :param moore: whether to use Moore-Penrose inverse or not
     :return: ...
     """
-    q = differentiate_RFM_1d(models_hjb, w_hjb, collocs)
-    A, f = get_lstsq_system_HJB(models_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, q, eps)
+    q = [q_func(collocs[i]).view(-1) for i in range(len(collocs))]
+    A, f = get_lstsq_system_HJB(models_hjb, collocs, m_func, M_p, J_n, Q, q, eps)
 
     # Solve
     if moore:
@@ -44,7 +44,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, models_fp, w_fp, M_p, J_n, Q, eps=0
     return torch.tensor(w)
 
 
-def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, eps, lam=0):
+def get_lstsq_system_HJB(models_hjb, points, m_func, M_p, J_n, Q, q, eps, lam=0):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
     :param models_hjb: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}
@@ -109,10 +109,11 @@ def get_lstsq_system_HJB(models_hjb, points, models_fp, w_fp, M_p, J_n, Q, q, ep
                 A_constraints[1, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
-        Lq = lagrangian_1d(points[k], q[k])
-        Fm = evaluate_RFM_1d(models_fp, w_fp, points[k]) ** 2  # The coupling term is F(m) = m^2
+        Lq = torch.cat(lagrangian_1d(points[k], q[k]))
+        Fm = m_func(points[k]).view(-1)
+        # Fm = evaluate_RFM_1d(models_fp, w_fp, points[k]) ** 2  # The coupling term is F(m) = m^2
         summed = Fm + Lq
-        trimmed = summed[:Q]
+        trimmed = summed[:Q].detach().numpy().reshape(-1, 1)
         f[k * Q:(k + 1) * Q, :] = trimmed
 
     A = np.concatenate((A_pde, A_constraints), axis=0)

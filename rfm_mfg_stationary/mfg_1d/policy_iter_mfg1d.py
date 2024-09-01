@@ -55,7 +55,6 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     # fix datatype
     torch.set_default_dtype(torch.float64)
 
-    # Step (1)
     # Initialize RFMs for FP and HJB with zero weights
     models_fp, collocs_fp = init_rfm(M_p_fp, J_n_fp, Q_fp)
     models_hjb, collocs_hjb = init_rfm(M_p_hjb, J_n_hjb, Q_hjb)
@@ -83,7 +82,7 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     actual_n_iters = n_iters  # the number of total iteration (before termination of loop)
 
     for curr_iter in range(1, n_iters+1):
-        # Step (2): Solve Fokker-Planck equation in policy iteration method
+        # Step (1): Solve Fokker-Planck equation in policy iteration method
         print("Iteration {}".format(curr_iter))
         start_time = time.time()
         historical_m[curr_iter], w_fp = solve_fokker_planck_1d(models_fp, collocs_fp, historical_q[curr_iter-1], dq, M_p_fp, J_n_fp, Q_fp)
@@ -97,9 +96,9 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
             update_l1_err_test(historical_m[curr_iter-1], historical_m[curr_iter])
         )
 
-        # Step (3): Solve HJB Equation in Policy iteration method
+        # Step (2): Solve HJB Equation in Policy iteration method
         start_time = time.time()
-        w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, models_fp, w_fp, M_p_hjb, J_n_hjb, Q_hjb)
+        w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, historical_m[curr_iter], historical_q[curr_iter-1], M_p_hjb, J_n_hjb, Q_hjb)
         finish_hjb = time.time()
         print(f"HJB took: {finish_hjb - start_time:.6f} seconds")
 
@@ -119,10 +118,10 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         # Compute MFG system residual
         system_residual[curr_iter] = torch.sum(torch.sqrt(errors_hjb[curr_iter].errors['residual'] **2 + errors_fp[curr_iter].errors['residual']**2))
 
-        # Step (4): Compute policy
+        # Step (3): Update the policy and its derivative
         historical_q[curr_iter], dq = second_diff_RFM_function(historical_u[curr_iter])
 
-        # loop termination condition once accuracy is small
+        # Check termination condition
         if should_terminate(historical_u[curr_iter], historical_u[curr_iter - 1], historical_q[curr_iter], historical_q[curr_iter-1], tau):
             actual_n_iters = curr_iter
             break
