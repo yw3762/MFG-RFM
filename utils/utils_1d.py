@@ -492,6 +492,11 @@ def sup_norm(f, g, n_pts=2000):
 def plot_errors(error_arr: ErrorArray, last_idx, label):
     iterations = range(1, last_idx + 1)
 
+    # plot L1 residual error by iteration
+    plot_by_iter([error_arr[i].errors['l1-error'] for i in iterations], 'L1 residual error of ' + label,
+                 'L1 residual error')
+    residual_error = [error_arr[i].errors['residual'] for i in iterations]
+
     # plot cumulative error per iteration
     # cumulative_errors = np.zeros(last_idx)
     # for i in range(last_idx):
@@ -504,14 +509,7 @@ def plot_errors(error_arr: ErrorArray, last_idx, label):
     # plt.legend()
     # plt.show()
 
-    # plot L1 convergence by iteration
-    plt.figure(figsize=(10, 6))
-    plt.plot(iterations, [error_arr[i].errors['l1-error'] for i in iterations], label=label + ' L1-Convergence')
-    plt.xlabel('iterations')
-    plt.ylabel('L1 Error')
-    plt.title('L1 convergence error of ' + label)
-    plt.legend()
-    plt.show()
+
 
 
 def plot_by_iter(value, title, ylabel):

@@ -47,10 +47,10 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.
 def get_lstsq_system_HJB(models_hjb, points, m_func, M_p, J_n, Q, q, eps, lam=0):
     """
     Calculate the matrix A and vector f in linear least square 'Au=f' associated with the Fokker-Planck PDE
+
     :param models_hjb: A list of local RFM models, one for each partition. Think of each model as a map R -> R^{J_n}
     :param points: Each element in this variable is a list of collocation points for a partition
-    :param models_fp: the RFM solution models for Fokker-Planck PDE
-    :param w_fp: the weights for Fokker-Planck RFM model
+    :param m_func: Numerical solution to FP as a function
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in each partition, each RF basis function is an RFM_Rep object
     :param Q: number of collocation points inside a partition

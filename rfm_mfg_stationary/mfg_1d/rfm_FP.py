@@ -70,9 +70,7 @@ def get_lstsq_system_fp(models, points, M_p, J_n, Q, q, dq, eps):
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
 
-    # TODO: For the moment, we assume non-negativity constraint in RFM also follows from normalization constraint,
-    #   We should check if this is true afterward.
-    # NOTE: It seems to be true
+    # We assume non-negativity constraint in RFM also follows from normalization constraint
     A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
 

@@ -77,7 +77,7 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
     errors_hjb: ErrorArray = create_error_array(n_iters + 1)
     system_residual = np.zeros(n_iters + 1)
 
-    plot_RFM_1d(historical_u[0], "u^0")
+    # plot_RFM_1d(historical_u[0], "u^0")
 
     actual_n_iters = n_iters  # the number of total iteration (before termination of loop)
 
