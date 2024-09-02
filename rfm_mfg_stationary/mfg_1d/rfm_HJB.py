@@ -110,7 +110,7 @@ def get_lstsq_system_HJB(models_hjb, points, m_func, M_p, J_n, Q, q, eps, lam=0)
 
         # The f-side of discretized Lu=f system
         Lq = torch.cat(lagrangian_1d(points[k], q[k]))
-        Fm = m_func(points[k]).view(-1)
+        Fm = m_func(points[k]).view(-1) ** 2
         # Fm = evaluate_RFM_1d(models_fp, w_fp, points[k]) ** 2  # The coupling term is F(m) = m^2
         summed = Fm + Lq
         trimmed = summed[:Q].detach().numpy().reshape(-1, 1)

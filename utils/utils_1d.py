@@ -364,11 +364,10 @@ def second_diff_RFM_function(f: Callable[[torch.Tensor], torch.Tensor]) -> Tuple
 
     def d2f(x: torch.Tensor) -> torch.Tensor:
         x = x.clone().detach().requires_grad_(True)  # Ensure x requires grad
-        y = f(x)
-        y.backward(torch.ones_like(y), create_graph=True)
-        grad_1st = x.grad.clone()
-        grad_1st.backward(torch.ones_like(grad_1st))
-        return x.grad
+        y = f(x).squeeze()
+        grad_y = torch.autograd.grad(y, x, grad_outputs=torch.ones_like(y), create_graph=True)[0]
+        grad2_y = torch.autograd.grad(grad_y, x, grad_outputs=torch.ones_like(grad_y), create_graph=True)[0]
+        return grad2_y
 
     return df, d2f
 
