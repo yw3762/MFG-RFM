@@ -98,12 +98,11 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
 
         # Step (2): Solve HJB Equation in Policy iteration method
         start_time = time.time()
-        w_hjb = solve_hjb_1d(models_hjb, w_hjb, collocs_hjb, historical_m[curr_iter], historical_q[curr_iter-1], M_p_hjb, J_n_hjb, Q_hjb)
+        historical_u[curr_iter], w_hjb = solve_hjb_1d(models_hjb, collocs_hjb, historical_m[curr_iter], historical_q[curr_iter-1], M_p_hjb, J_n_hjb, Q_hjb)
         finish_hjb = time.time()
         print(f"HJB took: {finish_hjb - start_time:.6f} seconds")
 
-        # Record solution and error for HJB equation
-        historical_u[curr_iter] = RFM_function_factory(models_hjb, w_hjb)
+        # Calculate error for HJB equation
         errors_hjb[curr_iter] = ErrorTracker1D(
             residual_error_hjb(historical_u[curr_iter], historical_u[curr_iter-1], historical_m[curr_iter],
                                plot=intermediate_plot),

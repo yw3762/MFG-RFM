@@ -2,10 +2,10 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d
+from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d, RFM_function_factory
 
 
-def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=False):
+def solve_hjb_1d(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=False):
     """
     This function solves the HJB PDE in second step of policy iteration algorithm for ergodic mfg_1d MFG
 
@@ -18,7 +18,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.
 
     We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
 
-    :param models_hjb: RFM model for HJB PDE
+    :param models: RFM model for HJB PDE
     :param w_hjb: weights for HJB RFM from previous iteration
     :param collocs: collocation points for HJB PDE
     :param models_fp: the RFM solution models for Fokker-Planck PDE
@@ -31,7 +31,7 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.
     :return: ...
     """
     q = [q_func(collocs[i]).view(-1) for i in range(len(collocs))]
-    A, f = get_lstsq_system_HJB(models_hjb, collocs, m_func, M_p, J_n, Q, q, eps)
+    A, f = get_lstsq_system_HJB(models, collocs, m_func, M_p, J_n, Q, q, eps)
 
     # Solve
     if moore:
@@ -40,8 +40,9 @@ def solve_hjb_1d(models_hjb, w_hjb, collocs, m_func, q_func, M_p, J_n, Q, eps=0.
     else:
         w = lstsq(A, f)[0]
 
-    w = w.reshape((M_p, J_n))
-    return torch.tensor(w)
+    w = torch.tensor(w.reshape((M_p, J_n)))
+    solution = RFM_function_factory(models, w)
+    return solution, w
 
 
 def get_lstsq_system_HJB(models_hjb, points, m_func, M_p, J_n, Q, q, eps, lam=0):
