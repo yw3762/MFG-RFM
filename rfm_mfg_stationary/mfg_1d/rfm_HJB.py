@@ -74,7 +74,7 @@ def get_lstsq_system_HJB(models_hjb, points, m_func, M_p, J_n, Q, q, eps, lam=0)
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
             grads_2_hjb = []
-            q_du = [] # Compute the (q * Du) term
+            q_du = []  # Compute the (q * Du) term
 
             for i in range(J_n):
                 # Compute gradient of i-th basis function

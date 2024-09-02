@@ -34,7 +34,7 @@ def solve_fokker_planck_1d(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.
     q = [q_func(collocs[i]).view(-1) for i in range(len(collocs))]
     dq = [dq_func(collocs[i]).view(-1) for i in range(len(collocs))]
     end_time = time.time()
-    print(f"second_diff took: {end_time-start_time:.6f} seconds")
+    print(f"second_diff took: {end_time - start_time:.6f} seconds")
 
     start_time = time.time()
     A, f = get_lstsq_system_fp(models, collocs, M_p, J_n, Q, q, dq, eps)

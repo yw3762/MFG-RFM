@@ -509,8 +509,6 @@ def plot_errors(error_arr: ErrorArray, last_idx, label):
     # plt.show()
 
 
-
-
 def plot_by_iter(value, title, ylabel):
     iterations = np.arange(1, len(value) + 1)
     plt.figure(figsize=(12, 6))
