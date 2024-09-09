@@ -8,7 +8,7 @@ from typing import Callable, Any
 from classes.error_tracker import ErrorTracker1D
 from utils.types import create_error_array, ErrorArray
 from utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
-    update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function
+    update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function, get_fd_residual
 from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
 
@@ -113,15 +113,18 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
         )
         # plot_RFM_1d(historical_u[curr_iter], "u^" + str(curr_iter))
 
-        # if curr_iter == 1:  # Plot u^1 vs true u^1 which can be computed explicitly
-        #     plot_u1(historical_u[1], eps)
-
         # Compute MFG system residual
         system_residual[curr_iter] = torch.sum(
             torch.sqrt(errors_hjb[curr_iter].errors['residual'] ** 2 + errors_fp[curr_iter].errors['residual'] ** 2))
 
         # Step (3): Update the policy and its derivative
         historical_q[curr_iter], dq = second_diff_RFM_function(historical_u[curr_iter])
+
+        # Computing finite-difference error
+        fd_fp_residual, fd_hjb_residual = get_fd_residual(historical_u[curr_iter], historical_m[curr_iter],
+                                   historical_q[curr_iter], eps)
+        errors_fp[curr_iter]['fd-residual'] = fd_fp_residual
+        errors_hjb[curr_iter]['fd-residual'] = fd_hjb_residual
 
         # Check termination condition
         if should_terminate(historical_u[curr_iter], historical_u[curr_iter - 1], historical_q[curr_iter],

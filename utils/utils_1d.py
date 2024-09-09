@@ -185,7 +185,7 @@ def V(x):
 
     The associated Hamiltonian is H(x, p) = 1/2 |p|^2 - V(x), where p is the variable for Dx
     """
-    return np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x)
+    return torch.sin(2. * torch.pi * x) + torch.cos(4. * torch.pi * x)
 
 
 def hamiltonian_1d(x, p, v=V):
@@ -221,22 +221,32 @@ def lagrangian_1d(x, q, v=V):
     """
     assert len(x) == len(q)
 
-    result = []
-    for i in range(len(x)):
-        # Check if q[i] is a tensor and requires gradients
-        if isinstance(q[i], torch.Tensor):
-            qi = q[i].detach() if q[i].requires_grad else q[i]
-        else:
-            qi = q[i]
+    if isinstance(q, torch.Tensor):
+        if q.requires_grad:
+            q.detach()
 
-        # Similarly, check for x[i]
-        if isinstance(x[i], torch.Tensor):
-            xi = x[i].detach() if x[i].requires_grad else x[i]
-        else:
-            xi = x[i]
-        result.append(qi ** 2 / 2 + v(xi))
+        return q ** 2 / 2 + v(x).view(-1)
+    else:
+        result = []
+        for i in range(len(x)):
+            result.append(q[i] ** 2 / 2 - v(x[i]))
+        return result
 
-    return result
+    # for i in range(len(x)):
+    #     # Check if q[i] is a tensor and requires gradients
+    #     if isinstance(q[i], torch.Tensor):
+    #         qi = q[i].detach() if q[i].requires_grad else q[i]
+    #     else:
+    #         qi = q[i]
+    #
+    #     # Similarly, check for x[i]
+    #     if isinstance(x[i], torch.Tensor):
+    #         xi = x[i].detach() if x[i].requires_grad else x[i]
+    #     else:
+    #         xi = x[i]
+    #     result.append(qi ** 2 / 2 + v(xi))
+    #
+    # return result
 
 
 def evaluate_RFM_1d(models, w, points):
@@ -407,7 +417,7 @@ def residual_error_fp(m, u, eps=0.3, plot=False):
         plt.legend()
         plt.show()
 
-    return error
+    return error.detach()
 
 
 def residual_error_hjb(u, old_u, m, eps=0.3, plot=False):
@@ -426,7 +436,7 @@ def residual_error_hjb(u, old_u, m, eps=0.3, plot=False):
 
     Fm_x = m_x ** 2
 
-    Lq = torch.stack(lagrangian_1d(pts, q_x)).view(-1)
+    Lq = lagrangian_1d(pts, q_x)
 
     Du = torch.autograd.grad(u(pts).sum(), pts, create_graph=True)[0].view(-1)
     Laplace_u = torch.autograd.grad(Du.sum(), pts, create_graph=True)[0].view(-1)
@@ -488,27 +498,6 @@ def sup_norm(f, g, n_pts=2000):
     return torch.sqrt(torch.trapz(diff_squared, x))
 
 
-def plot_errors(error_arr: ErrorArray, last_idx, label):
-    iterations = range(1, last_idx + 1)
-
-    # plot L1 residual error by iteration
-    plot_by_iter([error_arr[i].errors['l1-error'] for i in iterations], 'L1 residual error of ' + label,
-                 'L1 residual error')
-    residual_error = [error_arr[i].errors['residual'] for i in iterations]
-
-    # plot cumulative error per iteration
-    # cumulative_errors = np.zeros(last_idx)
-    # for i in range(last_idx):
-    #     cumulative_errors[i] = error_arr[i].sum().item()
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(iterations, cumulative_errors, label=label+'Error')
-    # plt.xlabel('iterations')
-    # plt.ylabel('Error')
-    # plt.title('Cumulative Error of'+label)
-    # plt.legend()
-    # plt.show()
-
-
 def plot_by_iter(value, title, ylabel):
     iterations = np.arange(1, len(value) + 1)
     plt.figure(figsize=(12, 6))
@@ -521,3 +510,49 @@ def plot_by_iter(value, title, ylabel):
     plt.legend()
     plt.text(iterations[-1], value[-1], f'({np.round(value[-1], 10)})', fontsize=10, ha='left', va='bottom')
     plt.show()
+
+
+def plot_errors(error_arr: ErrorArray, last_idx, label):
+    iterations = range(1, last_idx + 1)
+
+    # Plot L1 update error by iteration
+    l1_update_error = [error_arr[i].errors['l1-update-error'] for i in iterations]
+    plot_by_iter(l1_update_error, 'L1 update error of ' + label, 'L1 update error')
+
+    # Plot residual error by iteration
+    residual_error = [
+        torch.sqrt(torch.sum(error_arr[i].errors['residual'] ** 2 / len(error_arr[i].errors['residual']))).item() for i
+        in iterations]
+    plot_by_iter(residual_error, 'Residual error of ' + label, 'Residual error')
+
+    # Plot finite difference residual error by iteration
+    residual_error = [
+        torch.sqrt(torch.sum(error_arr[i].errors['fd-residual'] ** 2 / len(error_arr[i].errors['fd-residual']))).item()
+        for i
+        in iterations]
+    plot_by_iter(residual_error, 'Finite difference residual error of ' + label, 'FD Residual error')
+
+
+def get_fd_residual(curr_u, curr_m, prev_q, eps):
+    def fd_laplacian(vals, n_pts):
+        return (torch.roll(vals, -1) - 2 * vals + torch.roll(vals, 1)) * (n_pts - 1) ** 2
+
+    def fd_derivative(vals, n_pts):
+        return (torch.roll(vals, -1) - torch.roll(vals, 1)) * (n_pts - 1) / 2
+
+    n_pts = 1000
+    pts = torch.linspace(0, 1, n_pts).reshape(-1, 1)
+
+    # Calculate FD residual for FP
+    m_vals = curr_m(pts)
+    q_vals = prev_q(pts).view(-1)
+    LapM = fd_laplacian(m_vals, n_pts)
+    Dm = fd_derivative(m_vals, n_pts)
+    fp_fd_residual = -eps * LapM - Dm
+
+    # Calculate FD residual for HJB
+    u_vals = curr_u(pts)
+    hjb_fd_residual = -eps * fd_laplacian(u_vals, n_pts) + q_vals * fd_derivative(u_vals, n_pts) - lagrangian_1d(
+        pts.view(-1), q_vals)
+
+    return fp_fd_residual, hjb_fd_residual
