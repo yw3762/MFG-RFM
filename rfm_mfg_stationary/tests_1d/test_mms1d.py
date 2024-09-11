@@ -190,61 +190,6 @@ def fd_derivative(vals, h):
     return (torch.roll(vals, -1) - torch.roll(vals, 1)) / (2 * h)
 
 
-# def solve_FP_fd(models, collocs, q_func, M_p, J_n, Q, eps=0.3):
-#     q = [q_func(collocs[i]) for i in range(M_p)]
-#     A_pde_fd = np.zeros([M_p * Q, M_p * J_n])
-#
-#     # We assume non-negativity constraint in RFM also follows from normalization constraint
-#     A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
-#     f = np.zeros([M_p * Q + 2, 1])
-#
-#     h = collocs[0][1] - collocs[0][0]
-#
-#     # all_values[m * J_n + j, k * Q + i] = \phi_{m,j}(p_{k, i})
-#     all_values = np.zeros((M_p * J_n, M_p * collocs))
-#
-#     for k in range(M_p):
-#         for m in range(M_p):
-#             all_values[m*J_n: (m+1)*J_n, k * Q: (k+1)*Q] = models[m](collocs[k]).detach().numpy
-#
-#     for m in range(M_p):
-#         for j in range(J_n):
-#             Phi_m_j_idx = m * J_n + j
-#             Phi_m_j_idx
-#
-#
-#     for k in range(M_p):
-#         for m in range(M_p):
-#             # Evaluate the colloction points of partition-k on RFM of U_m
-#             out = models[m](collocs[k])
-#             # values[i,j] = f_{mj}(points[k,i]), where f_{mj} is feature function
-#             values = out.detach().numpy()  # shape: (Q+1, J_n)
-#             # Periodicity constraint, evaluate on boundary
-#             if k == 0:
-#                 A_constraints[0, m * J_n: (m + 1) * J_n] = values[0, :]
-#             elif k == M_p - 1:
-#                 A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
-#
-#             # Normalization constraint:
-#             for i in range(Q):
-#                 A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
-#     A_fd = np.concatenate((A_pde_fd, A_constraints), axis=0)
-#     f[-1] = 1 * M_p * Q  # normalize to 1
-#
-#     # Solve lstsq system
-#     w_fd = lstsq(A_fd, f)[0]
-#     w_fd = torch.tensor(w_fd.reshape((M_p, J_n)))
-#     solution_fd = RFM_function_factory(models, w_fd)
-#
-#     plot_RFM_1d(solution_fd, "m_fd")
-#
-#     return solution_fd
-
-
-# def solve_HJB_fd(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0):
-#     pass
-
-
 def test_fp_r_1(x, eps):
     """
     Assume m = pi/2 sin(pi x), u = const, then q = 0, then residual r for FP is eps * pi^3/2 sin(pi x)
@@ -276,25 +221,37 @@ def test_fp_r_4(x, eps):
                 cos(pi * x) * sin(2 * pi * x) + 2 * sin(pi * x) * cos(2 * pi * x))
 
 
-def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_r=test_fp_r_4):
+def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt=1):
     q = [q_func(collocs[i]) for i in range(M_p)]
     dq = [dq_func(collocs[i]) for i in range(M_p)]
 
-    # q_MMS = [torch.ones_like(q[i]) for i in range(M_p)]
-    # dq_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
-    # q_MMS = [2*collocs[i].view(-1) for i in range(M_p)]
-    # dq_MMS = [2*torch.ones_like(dq[i]) for i in range(M_p)]
-    q_MMS = [- 2 * pi * (sin(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
-    dq_MMS = [- 4 * pi ** 2 * (cos(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
+    if MMS_attempt == 1:
+        q_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
+        dq_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
+        MMS_r = test_fp_r_1
+    elif MMS_attempt == 2:
+        q_MMS = [torch.ones_like(q[i]) for i in range(M_p)]
+        dq_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
+        MMS_r = test_fp_r_2
+    elif MMS_attempt == 3:
+        q_MMS = [2 * collocs[i].view(-1) for i in range(M_p)]
+        dq_MMS = [2 * torch.ones_like(dq[i]) for i in range(M_p)]
+        MMS_r = test_fp_r_3
+    elif MMS_attempt == 4:
+        q_MMS = [- 2 * pi * (sin(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
+        dq_MMS = [- 4 * pi ** 2 * (cos(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
+        MMS_r = test_fp_r_4
+
 
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
-    A_pde_fd = np.zeros([M_p * Q, M_p * J_n])
+    A_MMS_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraint
     A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
+    f_MMS = np.zeros([M_p * Q + 2, 1])
 
     h = collocs[0][1] - collocs[0][0]
 
@@ -338,7 +295,7 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_r=test_
 
             # Specifying A_pde
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm[:Q, :]
-            # A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm_MMS[:Q, :]
+            A_MMS_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm_MMS[:Q, :]
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
@@ -351,9 +308,12 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_r=test_
                 A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
 
         # MMS RHS r
-        # f[k * Q:(k + 1) * Q, :] = MMS_r(collocs[k], eps)[:Q].detach().numpy()
+        f_MMS[k * Q:(k + 1) * Q, :] = MMS_r(collocs[k], eps)[:Q].detach().numpy()
     A = np.concatenate((A_pde, A_constraints), axis=0)
+    A_MMS = np.concatenate((A_MMS_pde, A_constraints), axis=0)
+
     f[-1] = 1 * M_p * Q  # normalize to 1
+    f_MMS[-1] = 1 * M_p * Q
 
     # Solve lstsq system
     w = lstsq(A, f)[0]
@@ -361,13 +321,21 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_r=test_
 
     solution = RFM_function_factory(models, w)
 
-    plot_RFM_1d(solution, "m")
+    w_MMS = lstsq(A_MMS, f_MMS)[0]
+    w_MMS = torch.tensor(w_MMS.reshape((M_p, J_n)))
+
+    solution_MMS = RFM_function_factory(models, w_MMS)
 
     # Anticipated MMS solution is m = pi/2 sin(pi x)
     x = np.linspace(0, 1, M_p * Q + 1)
     mx = np.pi / 2 * np.sin(np.pi * x)
-    plt.plot(x, mx, "")
+    rfm_x = solution_MMS(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
+    plt.plot(x, mx, label="true m", linestyle='-')
+    plt.plot(x, rfm_x, label="RFM m", linestyle='--')
+    plt.legend()
     plt.show()
+    print("The L1 difference between true solution and RFM solution is",
+          compare_RFM_true(solution_MMS, lambda x: pi * sin(pi * x) / 2))
 
     return solution
 
