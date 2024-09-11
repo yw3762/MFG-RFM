@@ -183,11 +183,52 @@ def lagrangian_1d(x, q):
 
 
 def fd_laplacian(vals, h):
-    return (torch.roll(vals, -1) - 2 * vals + torch.roll(vals, 1)) / (h ** 2)
-
+    rolled_left = torch.roll(vals, -1)
+    rolled_right = torch.roll(vals, 1)
+    diff = rolled_left - 2 * vals + rolled_right
+    return diff / (h ** 2)
+    # return (-torch.roll(vals, -2) + 16 * torch.roll(vals, -1) - 30 * vals + 16 * torch.roll(vals, 1)
+    #         -torch.roll(vals, 2)) / (12 * h**2)
 
 def fd_derivative(vals, h):
     return (torch.roll(vals, -1) - torch.roll(vals, 1)) / (2 * h)
+
+
+def get_MMS_fd_residual_FP(curr_m, prev_q, eps, r):
+    n_pts = 1000
+    pts = torch.linspace(0, 1, n_pts+1)[:-1].reshape(-1, 1)
+    h = (pts[1] - pts[0]).item()
+
+    # Calculate FD residual for FP
+    m_vals = curr_m(pts).view(-1)
+    q_vals = prev_q(pts).view(-1)
+
+    LapM = fd_laplacian(m_vals, h)
+    LapM = torch.cat((LapM, LapM[0:1]))
+
+    div_mq = fd_derivative(m_vals * q_vals, h)
+    div_mq = torch.cat((div_mq, div_mq[0:1]))
+
+    r_values = r(pts, eps).view(-1)
+
+    r_values = torch.cat((r_values, r_values[0:1]))
+
+    pts = torch.linspace(0, 1, n_pts + 1).reshape(-1, 1)
+    plt.plot(pts, - (pi**3) * sin(pi * pts) / 2 , label="true LapM")
+    plt.plot(pts, LapM, label="FD LapM")
+    plt.legend()
+    plt.show()
+
+    pts = torch.linspace(0, 1, n_pts + 1)[1:-1].reshape(-1, 1)
+    plt.plot(pts, - (pi ** 3) * sin(pi * pts) / 2, label="true LapM")
+    plt.plot(pts, LapM[1:-1], label="FD LapM")
+    plt.legend()
+    plt.title("Truncated boundary points")
+    plt.show()
+
+    fp_fd_residual = torch.abs(-eps * LapM - div_mq - r_values)
+
+    return fp_fd_residual
 
 
 def test_fp_r_1(x, eps):
@@ -226,18 +267,22 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
     dq = [dq_func(collocs[i]) for i in range(M_p)]
 
     if MMS_attempt == 1:
+        q_MMS_func = lambda x: torch.zeros_like(x)
         q_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
         dq_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
         MMS_r = test_fp_r_1
     elif MMS_attempt == 2:
+        q_MMS_func = lambda x: torch.ones_like(x)
         q_MMS = [torch.ones_like(q[i]) for i in range(M_p)]
         dq_MMS = [torch.zeros_like(dq[i]) for i in range(M_p)]
         MMS_r = test_fp_r_2
     elif MMS_attempt == 3:
+        q_MMS_func = lambda x: 2*x
         q_MMS = [2 * collocs[i].view(-1) for i in range(M_p)]
         dq_MMS = [2 * torch.ones_like(dq[i]) for i in range(M_p)]
         MMS_r = test_fp_r_3
     elif MMS_attempt == 4:
+        q_MMS_func = lambda x: -2*pi *sin(2*pi*x)
         q_MMS = [- 2 * pi * (sin(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
         dq_MMS = [- 4 * pi ** 2 * (cos(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
         MMS_r = test_fp_r_4
@@ -327,16 +372,20 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
 
     # Anticipated MMS solution is m = pi/2 sin(pi x)
     x = np.linspace(0, 1, M_p * Q + 1)
+    true_MMS_m = lambda x: pi * sin(pi * x) / 2
     mx = np.pi / 2 * np.sin(np.pi * x)
     rfm_x = solution_MMS(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
     plt.plot(x, mx, label="true m", linestyle='-')
     plt.plot(x, rfm_x, label="RFM m", linestyle='--')
-    plt.title("MMS attempt", MMS_attempt)
+    plt.title("MMS attempt"+ str(MMS_attempt) + " for FP")
     plt.legend()
     plt.show()
     print("The L1 difference between true solution and RFM solution is",
-          compare_RFM_true(solution_MMS, lambda x: pi * sin(pi * x) / 2))
+          compare_RFM_true(solution_MMS, true_MMS_m))
 
+    fd_fp_residual = get_MMS_fd_residual_FP(true_MMS_m, q_MMS_func, eps, MMS_r)
+    fd_l1_residual = (fd_fp_residual.sum() / len(fd_fp_residual)).item()
+    print("The L1 FD residual of MMS RFM solution is", fd_l1_residual)
     return solution
 
 
@@ -401,10 +450,12 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
+    A_MMS_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraint
     A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
     f = np.zeros([M_p * Q + 2, 1])
+    f_MMS = np.zeros([M_p * Q + 2, 1])
 
     for k in range(M_p):
         for m in range(M_p):
@@ -441,8 +492,8 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
             Lu = - eps * grads_2 + q_du  # shape=(Q+1, J_n)
             Lu_MMS = - eps * grads_2 + q_du_MMS
 
-            # A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
-            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu_MMS[:Q, :] + lam
+            A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
+            A_MMS_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu_MMS[:Q, :] + lam
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
@@ -459,6 +510,7 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
         Fm = m_func(collocs[k]).view(-1) ** 2  # The coupling term is F(m) = m^2
         summed = Fm + Lq
         trimmed = summed[:Q].detach().numpy().reshape(-1, 1)
+        f[k * Q:(k + 1) * Q, :] = trimmed
 
         # The f-side of MMS
         Lq_MMS = lagrangian_1d(collocs[k], q_MMS[k])
@@ -476,31 +528,36 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
         summed_MMS = Fm_MMS + Lq_MMS
 
         trimmed_MMS = summed_MMS[:Q].detach().numpy().reshape(-1, 1)
-        # f[k * Q:(k + 1) * Q, :] = trimmed
         MMS_r_value = MMS_r(collocs[k], eps)[:Q].detach().numpy()
-        f[k * Q:(k + 1) * Q, :] = trimmed_MMS + MMS_r_value
+        f_MMS[k * Q:(k + 1) * Q, :] = trimmed_MMS + MMS_r_value
 
     A = np.concatenate((A_pde, A_constraints), axis=0)
+    A_MMS = np.concatenate((A_MMS_pde, A_constraints), axis=0)
     f[-1] = 0  # normalize to 0
+    f_MMS[-1] = 0
 
     # Solve lstsq system
     w = lstsq(A, f)[0]
     w = torch.tensor(w.reshape((M_p, J_n)))
 
     solution = RFM_function_factory(models, w)
-    plot_RFM_1d(solution, "u")
+
+    w_MMS = lstsq(A_MMS, f_MMS)[0]
+    w_MMS = torch.tensor(w_MMS.reshape((M_p, J_n)))
+
+    solution_MMS = RFM_function_factory(models, w_MMS)
 
     # Anticipated MMS solution is u = sin(2 pi x),
     x = np.linspace(0, 1, M_p * Q + 1)
     ux = np.sin(2 * np.pi * x)
-    rfm_x = solution(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
+    rfm_x = solution_MMS(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
     plt.plot(x, ux, label="true u", linestyle='-')
     plt.plot(x, rfm_x, label="RFM u", linestyle='--')
-    plt.title("MMS attempt", MMS_attempt)
+    plt.title("MMS attempt "+ str(MMS_attempt) + " for HJB")
     plt.legend()
     plt.show()
     print("The L1 difference between true solution and RFM solution is",
-          compare_RFM_true(solution, lambda x: sin(2 * pi * x)))
+          compare_RFM_true(solution_MMS, lambda x: sin(2 * pi * x)))
 
     return solution
 
