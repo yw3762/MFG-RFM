@@ -218,7 +218,7 @@ def test_fp_r_4(x, eps):
     then residual r for FP is eps * pi^3/2 sin(pi x) + pi^3 (cos(pi x) sin(2pi x) + 2sin(pi x) cos(2pi x))
     """
     return eps * (pi ** 3) * sin(pi * x) / 2 + (pi ** 3) * (
-                cos(pi * x) * sin(2 * pi * x) + 2 * sin(pi * x) * cos(2 * pi * x))
+            cos(pi * x) * sin(2 * pi * x) + 2 * sin(pi * x) * cos(2 * pi * x))
 
 
 def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt=1):
@@ -241,7 +241,6 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
         q_MMS = [- 2 * pi * (sin(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
         dq_MMS = [- 4 * pi ** 2 * (cos(2 * pi * collocs[i])).view(-1) for i in range(M_p)]
         MMS_r = test_fp_r_4
-
 
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
@@ -332,6 +331,7 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
     rfm_x = solution_MMS(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
     plt.plot(x, mx, label="true m", linestyle='-')
     plt.plot(x, rfm_x, label="RFM m", linestyle='--')
+    plt.title("MMS attempt", MMS_attempt)
     plt.legend()
     plt.show()
     print("The L1 difference between true solution and RFM solution is",
@@ -357,24 +357,27 @@ def test_hjb_r_1(x, eps):
     Our r should be -eps*Laplacian_u_1 + q_1 *Du_1 - L_q_1 - F(m_1(x))
     """
     return (eps * 4 * pi ** 2 * sin(2 * pi * x) - 4 * pi ** 2 * sin(2 * pi * x) * cos(2 * pi * x) - 2 * (pi ** 2) * (
-                sin(2 * pi * x) ** 2)) - sin(2 * pi * x) - cos(4 * pi * x) - pi ** 2 * (sin(pi * x) ** 2) / 4
+            sin(2 * pi * x) ** 2)) - sin(2 * pi * x) - cos(4 * pi * x) - pi ** 2 * (sin(pi * x) ** 2) / 4
 
 
 def test_hjb_r_2(x, eps):
-    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2* pi * cos(2 * pi * x) - 1/2 - sin(2*pi*x) - cos(4*pi*x)
+    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2 * pi * cos(2 * pi * x) - 1 / 2 - sin(2 * pi * x) - cos(4 * pi * x)
 
 
 def test_hjb_r_3(x, eps):
-    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2* pi * cos(2 * pi * x) - 1/2 - sin(2*pi*x) - cos(4*pi*x) - x**2
+    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2 * pi * cos(2 * pi * x) - 1 / 2 - sin(2 * pi * x) - cos(
+        4 * pi * x) - x ** 2
 
 
 def test_hjb_r_4(x, eps):
-    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2*(x**2)* pi * cos(2 * pi * x) - x**4/2 - sin(2*pi*x) - cos(4*pi*x) - x**2
+    return eps * 4 * (pi ** 2) * sin(2 * pi * x) + 2 * (x ** 2) * pi * cos(2 * pi * x) - x ** 4 / 2 - sin(
+        2 * pi * x) - cos(4 * pi * x) - x ** 2
 
 
 def test_hjb_r_5(x, eps):
     return (eps * 4 * pi ** 2 * sin(2 * pi * x) - 4 * pi ** 2 * sin(2 * pi * x) * cos(2 * pi * x) - 2 * (pi ** 2) * (
-                sin(2 * pi * x) ** 2)) - sin(2 * pi * x) - cos(4 * pi * x)
+            sin(2 * pi * x) ** 2)) - sin(2 * pi * x) - cos(4 * pi * x)
+
 
 def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_attempt=5):
     q = [q_func(collocs[i]) for i in range(M_p)]
@@ -487,16 +490,17 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
     solution = RFM_function_factory(models, w)
     plot_RFM_1d(solution, "u")
 
-
     # Anticipated MMS solution is u = sin(2 pi x),
     x = np.linspace(0, 1, M_p * Q + 1)
     ux = np.sin(2 * np.pi * x)
     rfm_x = solution(torch.tensor(x.reshape([-1, 1]))).view(-1).numpy()
     plt.plot(x, ux, label="true u", linestyle='-')
     plt.plot(x, rfm_x, label="RFM u", linestyle='--')
+    plt.title("MMS attempt", MMS_attempt)
     plt.legend()
     plt.show()
-    print("The L1 difference between true solution and RFM solution is", compare_RFM_true(solution, lambda x: sin(2*pi*x)))
+    print("The L1 difference between true solution and RFM solution is",
+          compare_RFM_true(solution, lambda x: sin(2 * pi * x)))
 
     return solution
 
