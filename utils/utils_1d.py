@@ -229,24 +229,8 @@ def lagrangian_1d(x, q, v=V):
     else:
         result = []
         for i in range(len(x)):
-            result.append(q[i] ** 2 / 2 - v(x[i]))
+            result.append(q[i] ** 2 / 2 + v(x[i]))
         return result
-
-    # for i in range(len(x)):
-    #     # Check if q[i] is a tensor and requires gradients
-    #     if isinstance(q[i], torch.Tensor):
-    #         qi = q[i].detach() if q[i].requires_grad else q[i]
-    #     else:
-    #         qi = q[i]
-    #
-    #     # Similarly, check for x[i]
-    #     if isinstance(x[i], torch.Tensor):
-    #         xi = x[i].detach() if x[i].requires_grad else x[i]
-    #     else:
-    #         xi = x[i]
-    #     result.append(qi ** 2 / 2 + v(xi))
-    #
-    # return result
 
 
 def evaluate_RFM_1d(models, w, points):
@@ -472,7 +456,7 @@ def constraint_test(f):
 
 
 def update_l1_err_test(old_f, new_f):
-    n_pts = 2000
+    n_pts = 1000
     pts = torch.tensor(np.linspace(0, 1, n_pts), dtype=torch.float64, requires_grad=False).reshape([-1, 1])
 
     diffs = torch.abs(old_f(pts) - new_f(pts))
@@ -533,26 +517,28 @@ def plot_errors(error_arr: ErrorArray, last_idx, label):
     plot_by_iter(residual_error, 'Finite difference residual error of ' + label, 'FD Residual error')
 
 
+def fd_laplacian(vals, n_pts):
+    return (torch.roll(vals, -1) - 2 * vals + torch.roll(vals, 1)) * (n_pts - 1) ** 2
+
+
+def fd_derivative(vals, n_pts):
+    return (torch.roll(vals, -1) - torch.roll(vals, 1)) * (n_pts - 1) / 2
+
+
 def get_fd_residual(curr_u, curr_m, prev_q, eps):
-    def fd_laplacian(vals, n_pts):
-        return (torch.roll(vals, -1) - 2 * vals + torch.roll(vals, 1)) * (n_pts - 1) ** 2
-
-    def fd_derivative(vals, n_pts):
-        return (torch.roll(vals, -1) - torch.roll(vals, 1)) * (n_pts - 1) / 2
-
     n_pts = 1000
     pts = torch.linspace(0, 1, n_pts).reshape(-1, 1)
 
     # Calculate FD residual for FP
-    m_vals = curr_m(pts)
+    m_vals = curr_m(pts).view(-1)
     q_vals = prev_q(pts).view(-1)
     LapM = fd_laplacian(m_vals, n_pts)
-    Dm = fd_derivative(m_vals, n_pts)
-    fp_fd_residual = -eps * LapM - Dm
+    div_mq = fd_derivative(m_vals * q_vals, n_pts)
+    fp_fd_residual = -eps * LapM - div_mq
 
     # Calculate FD residual for HJB
     u_vals = curr_u(pts)
     hjb_fd_residual = -eps * fd_laplacian(u_vals, n_pts) + q_vals * fd_derivative(u_vals, n_pts) - lagrangian_1d(
-        pts.view(-1), q_vals)
+        pts.view(-1), q_vals) - m_vals**2
 
     return fp_fd_residual, hjb_fd_residual

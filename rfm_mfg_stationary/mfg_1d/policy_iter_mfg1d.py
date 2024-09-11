@@ -122,7 +122,7 @@ def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_ite
 
         # Computing finite-difference error
         fd_fp_residual, fd_hjb_residual = get_fd_residual(historical_u[curr_iter], historical_m[curr_iter],
-                                   historical_q[curr_iter], eps)
+                                   historical_q[curr_iter-1], eps)
         errors_fp[curr_iter]['fd-residual'] = fd_fp_residual
         errors_hjb[curr_iter]['fd-residual'] = fd_hjb_residual
 
