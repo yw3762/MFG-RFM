@@ -578,12 +578,6 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
     historical_q = [None]
     historical_q[0], dq = second_diff_RFM_function(historical_u[0])
 
-    # residual
-    residuals_m = []
-    residuals_u = []
-    fd_residual_m = []
-    fd_residuals_u = []
-
     # main loop
     for k in range(1, n_iters + 1):
         print("Iteration {}".format(k))
@@ -595,7 +589,48 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
 
         new_q, dq = second_diff_RFM_function(historical_u[k])
         historical_q.append(new_q)
+
+        # Test whether this computation of q and dq are accurate using finite difference method
+        test_differentials(historical_u[k], historical_q[k], dq)
+
     return historical_m[-1], historical_u[-1]
+
+
+def test_differentials(f_func, df_func, df2_func):
+    n_pts = 1000
+    pts = torch.linspace(0, 1, n_pts+1).reshape([-1, 1])
+    h = (pts[1] - pts[0])[0]
+
+    f = f_func(pts).view(-1)
+    df_fd = fd_derivative(f, h)
+    df2_fd = fd_laplacian(f, h)
+
+    df = df_func(pts).view(-1)
+    df2 = df2_func(pts).view(-1)
+
+    plt.plot(pts, df_fd, label="FD Q")
+    plt.plot(pts, df, label="Q", linestyle='--')
+    plt.legend()
+    plt.title('Comparison of Q and FD Q')
+    plt.show()
+
+    plt.plot(pts[1:-1], df_fd[1:-1], label="FD Q")
+    plt.plot(pts, df, label="Q", linestyle='--')
+    plt.legend()
+    plt.title('Comparison of Q and FD Q (No endpoints)')
+    plt.show()
+
+    plt.plot(pts, df2_fd, label="FD dQ")
+    plt.plot(pts.detach().numpy(), df2.detach().numpy(), label="dQ", linestyle='--')
+    plt.legend()
+    plt.title('Comparison of dQ and FD dQ')
+    plt.show()
+
+    plt.plot(pts[1:-1], df2_fd[1:-1], label="FD dQ")
+    plt.plot(pts.detach().numpy(), df2.detach().numpy(), label="dQ", linestyle='--')
+    plt.legend()
+    plt.title('Comparison of dQ and FD dQ (No endpoints)')
+    plt.show()
 
 
 def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
