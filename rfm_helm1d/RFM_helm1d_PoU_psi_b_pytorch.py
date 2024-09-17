@@ -206,7 +206,7 @@ def test(models, M_p, J_n, Q, w, plot=False):
     true_values = []
     numerical_values = []
     test_Q = int(1000 / M_p)
-    plot_RFM_1d(models, w, "my plot", interval_length=8.0)
+    # plot_RFM_1d(models, w, "my plot", interval_length=8.0)
     for k in range(M_p):
         points = torch.tensor(np.linspace(8.0 / M_p * (k), 8.0 / M_p * (k + 1), test_Q + 1),
                               requires_grad=False).reshape([-1, 1])
