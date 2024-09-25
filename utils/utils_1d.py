@@ -199,12 +199,16 @@ def hamiltonian_1d(x, p, v=V):
     :return: value of Hamiltonian on (x, p), same shape as x
     """
     assert len(x) == len(p)
+    if isinstance(p, torch.Tensor):
+        if p.requires_grad:
+            p.detach()
 
-    result = []
-    for i in range(len(x)):
-        result.append(p[i] ** 2 / 2 - v(x[i]))
-
-    return result
+        return p ** 2 / 2 - v(x).view(-1)
+    else:
+        result = []
+        for i in range(len(x)):
+            result.append(p[i] ** 2 / 2 - v(x[i]))
+        return result
 
 
 def lagrangian_1d(x, q, v=V):
@@ -224,7 +228,6 @@ def lagrangian_1d(x, q, v=V):
     if isinstance(q, torch.Tensor):
         if q.requires_grad:
             q.detach()
-
         return q ** 2 / 2 + v(x).view(-1)
     else:
         result = []

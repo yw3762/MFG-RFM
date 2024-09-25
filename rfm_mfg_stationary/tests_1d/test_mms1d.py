@@ -293,9 +293,9 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
     A_MMS_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraint
-    A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
-    f = np.zeros([M_p * Q + 2, 1])
-    f_MMS = np.zeros([M_p * Q + 2, 1])
+    A_constraints = np.zeros([3, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
+    f = np.zeros([M_p * Q + 3, 1])
+    f_MMS = np.zeros([M_p * Q + 3, 1])
 
     h = collocs[0][1] - collocs[0][0]
 
@@ -307,6 +307,7 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
             values = out.detach().numpy()  # shape: (Q+1, J_n),
 
             # Compute first and second order derivative dm/dx and d^2m/dx^2
+            grads_1 = []
             grads_2 = []
 
             # Compute divergence term div(q m)
@@ -323,12 +324,14 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=collocs[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           retain_graph=True)[0]
+                grads_1.append(g_1.squeeze().detach().numpy())
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'
                 div.append((g_1.squeeze() * q[k] + out[:, i] * dq[k]).detach().numpy())
                 div_MMS.append((g_1.squeeze() * q_MMS[k] + out[:, i] * dq_MMS[k]).detach().numpy())
 
+            grads_1 = np.array(grads_1).T  # grads_1[j,i] = f''_{mi}(points[k, j])
             grads_2 = np.array(grads_2).T  # grads_2[j,i] = f''_{mi}(points[k, j])
             div = np.array(div).T  # div[j,i] = div(f_{mi}q)(points[k, j])
             div_MMS = np.array(div_MMS).T
@@ -342,14 +345,18 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt
             A_MMS_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm_MMS[:Q, :]
 
             # Periodicity constraint, evaluate on boundary
+            weight_c0 = 100
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] = values[0, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += weight_c0 * values[0, :]
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= weight_c0 * values[Q, :]
 
-            # Normalization constraint:
-            for i in range(Q):
-                A_constraints[1, m * J_n: (m + 1) * J_n] += values[i, :]
+            # New C^1 condition on boundary
+            weight_c1 = 100
+            if k == 0:
+                A_constraints[2, m * J_n: (m + 1) * J_n] += weight_c1 * grads_1[0, :]
+            elif k == M_p - 1:
+                A_constraints[2, m * J_n: (m + 1) * J_n] -= weight_c1 * grads_1[Q, :]
 
         # MMS RHS r
         f_MMS[k * Q:(k + 1) * Q, :] = MMS_r(collocs[k], eps)[:Q].detach().numpy()
@@ -453,9 +460,9 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
     A_MMS_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraint
-    A_constraints = np.zeros([2, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
-    f = np.zeros([M_p * Q + 2, 1])
-    f_MMS = np.zeros([M_p * Q + 2, 1])
+    A_constraints = np.zeros([3, M_p * J_n])  # one for boundary, one for normalization -> 2 in total
+    f = np.zeros([M_p * Q + 3, 1])
+    f_MMS = np.zeros([M_p * Q + 3, 1])
 
     for k in range(M_p):
         for m in range(M_p):
@@ -464,6 +471,7 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
             values_hjb = out.detach().numpy()
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
+            grads_1 = []
             grads_2 = []
             q_du = []  # Compute the (q * Du) term
             q_du_MMS = []
@@ -478,11 +486,13 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=collocs[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           retain_graph=True)[0]
+                grads_1.append(g_1.squeeze().detach().numpy())
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 q_du.append((g_1.squeeze() * q[k]).detach().numpy())
                 q_du_MMS.append((g_1.squeeze() * q_MMS[k]).detach().numpy())
 
+            grads_1 = np.array(grads_1).T
             grads_2 = np.array(grads_2).T  # grads[j,i] = f''_{mi}(points[k, j])
             q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
             q_du_MMS = np.array(q_du_MMS).T
@@ -496,14 +506,22 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
             A_MMS_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu_MMS[:Q, :] + lam
 
             # Periodicity constraint, evaluate on boundary
+            weight_c0 = 10
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] = values_hjb[0, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += weight_c0 * values_hjb[0, :]  # Q * M_p
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values_hjb[Q, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= weight_c0 * values_hjb[Q, :]
+
+            # C^1 Periodicity constraint, evaluate on boundary
+            weight_c1 = 10
+            if k == 0:
+                A_constraints[1, m * J_n: (m + 1) * J_n] += weight_c1 * grads_1[0, :]
+            elif k == M_p - 1:
+                A_constraints[1, m * J_n: (m + 1) * J_n] -= weight_c1 * grads_1[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[1, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
+                A_constraints[2, m * J_n: (m + 1) * J_n] += 1 * values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
         Lq = lagrangian_1d(collocs[k], q[k])

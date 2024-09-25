@@ -411,15 +411,15 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += 1000 * values_hjb[0, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += 400 * values_hjb[0, :] # Q * M_p
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= 1000 * values_hjb[Q, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= 400 * values_hjb[Q, :]
 
             # C^1 Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += 1000 * grads_1[0, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] += 1 * grads_1[0, :]
             elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= 1000 * grads_1[Q, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] -= 1 * grads_1[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
