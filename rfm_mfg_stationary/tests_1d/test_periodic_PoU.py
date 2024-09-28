@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 from typing import Callable, List, Tuple
 
-from utils.utils_1d import plot_by_iter, hamiltonian_1d
+from utils.utils_1d import plot_by_iter
 
 INTERVAL_LENGTH = 1.0
 
@@ -20,8 +20,9 @@ class RFM_rep(nn.Module):
         self.J_n = J_n  # J_n is the number of local RF functions
         self.x_min = x_min  # x_{nj} - r_{nj}
         self.x_max = x_max  # x_{nj} + r_{nj}
-        self.a = 2.0 / (x_max - x_min)  # this is the 1/r_{nj}
+        self.a = 2. / (x_max - x_min)  # this is the 1/r_{nj}
         self.x_0 = (x_max + x_min) / 2  # center of partition.
+        self.gap = INTERVAL_LENGTH  * (x_max - x_min) / 4.
 
         # Hidden layer is a simple linear FC layer passed to kernel function Tanh.
         self.hidden_layer = nn.Sequential(
@@ -36,67 +37,32 @@ class RFM_rep(nn.Module):
         2. Pass through the hidden layer (i.e. Linear layer + tanh), i.e. we obtain J_n RF functions \phi_nj(x)
         3. Glue the solution at x using partition of unity, i.e. we obtain
         """
-        d = (x - self.x_min) / (self.x_max - self.x_min)
-        # indicator of location of x
-        d0 = d <= -1 / 4
-        d1 = (d <= 1 / 4) & (d > -1 / 4)
-        d2 = (d <= 3 / 4) & (d > 1 / 4)
-        d3 = (d <= 5 / 4) & (d > 3 / 4)
-        d4 = d > 5 / 4
 
-        # y is the change of variable in normalized coordinate \tilde{x}
-        y = self.a * (x - self.x_0)
-
-        # pass the normalized variable into hidden-layer
-        # print('Before passing to hidden layer, y is', y)
-        y = self.hidden_layer(y)
-        # print('After passing to hidden layer, y is', y)
-
-        # y_i are the PoU w.r.t each location of x
-        y0 = 0
-        y1 = y * (1 + torch.sin(2 * np.pi * d)) / 2
-        y2 = y
-        y3 = y * (1 - torch.sin(2 * np.pi * (d - 1))) / 2
-        y4 = 0
-
-        # check boundary cases, on boundaries, there is no need for sin() smoothing
+        # preprocess the input x so that when the partition [x_min, x_max] overlaps the boundary points 0, or
+        # INTERVAL_LENGTH, we map the points from other ends so that it's covered by the "identified PoU"
         if self.x_min == 0:
-            return d0 * y0 + (d1 + d2) * y2 + d3 * y3 + d4 * y4
+            x = torch.where(x >= 1 - self.gap, x - 1, x)
         elif self.x_max == INTERVAL_LENGTH:
-            return d0 * y0 + d1 * y1 + (d2 + d3) * y2 + d4 * y4 # d3 * y2 instead of d3 * y3
-        else:
-            return d0 * y0 + d1 * y1 + d2 * y2 + d3 * y3 + d4 * y4
-
+            x = torch.where(x <= self.gap , x + 1, x)
 
         # y is the change of variable in normalized coordinate \tilde{x}
-        # tilde_x = self.a * (x - self.x_0)
+        tilde_x = self.a * (x - self.x_0)
 
         # pass the normalized variable into hidden-layer
-        # phi_nj = self.hidden_layer(tilde_x)  # phi_nj[i, j] = \phi_{n,j}(tilde_x[i])
+        phi_nj = self.hidden_layer(tilde_x)  # phi_nj[i, j] = \phi_{n,j}(tilde_x[i])
 
         # location indicator
-        # d0 = tilde_x < -5 / 4
-        # d1 = (tilde_x >= -5 / 4) & (tilde_x < -3 / 4)
-        # d2 = (tilde_x >= -3 / 4) & (tilde_x < 3 / 4)
-        # d3 = (tilde_x >= 3 / 4) & (tilde_x < 5 / 4)
-        # d4 = tilde_x >= 5 / 4
+        d1 = (tilde_x >= -5 / 4) & (tilde_x < -3 / 4)
+        d2 = (tilde_x >= -3 / 4) & (tilde_x < 3 / 4)
+        d3 = (tilde_x >= 3 / 4) & (tilde_x < 5 / 4)
 
         # y_i are the PoU w.r.t each location of x
-        # y0 = 0
-        # y1 = phi_nj * (1 + torch.sin(2 * np.pi * tilde_x)) / 2
-        # y2 = phi_nj
-        # y3 = phi_nj * (1 - torch.sin(2 * np.pi * tilde_x)) / 2
-        # y4 = 0
-        #
-        # values = d1 * y1 + d2 * y2 + d3 * y3
-        #
-        # if self.x_min == 0:
-        #     values +=
-        # elif self.x_max == INTERVAL_LENGTH:
-        #     values +=
+        y1 = phi_nj * (1 + torch.sin(2 * np.pi * tilde_x)) / 2
+        y2 = phi_nj
+        y3 = phi_nj * (1 - torch.sin(2 * np.pi * tilde_x)) / 2
 
-        #
-        # return values
+        values = d1 * y1 + d2 * y2 + d3 * y3
+        return values
 
 
 def set_seed(x):
@@ -222,6 +188,7 @@ def hamiltonian_1d(x, p):
             result.append(p[i] ** 2 / 2 - v(x[i]))
         return result
 
+
 def lagrangian_1d(x, q):
     assert len(x) == len(q)
     def v(x):
@@ -317,22 +284,6 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
             # Specifying A_pde
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm[:Q, :]
 
-            # Periodicity constraint, evaluate on boundary
-            if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += values[0, :]
-                divisor_boundary[0] = max(divisor_boundary[0], np.max(np.abs(values[0, :])))
-            elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
-                divisor_boundary[0] = max(divisor_boundary[0], np.max(np.abs(values[Q, :])))
-
-            # New C^1 condition on boundary
-            if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += grads_1[0, :]
-                divisor_boundary[1] = max(divisor_boundary[1], np.max(np.abs(grads_1[0, :])))
-            elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= grads_1[Q, :]
-                divisor_boundary[1] = max(divisor_boundary[1], np.max(np.abs(grads_1[Q, :])))
-
             # Normalization constraint:
             for i in range(Q):
                 A_constraints[2, m * J_n: (m + 1) * J_n] += values[i, :]
@@ -341,18 +292,11 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
     lambda_interiors = c / divisor_interiors
     lambda_boundary = c / divisor_boundary
 
-    lambda_boundary[0] = 1000
-    lambda_boundary[1] = 1000
+    lambda_boundary[0] = 0
+    lambda_boundary[1] = 0
     lambda_boundary[2] = 10
 
     lambda_together = np.concatenate((lambda_interiors, lambda_boundary), axis=0).reshape((-1, 1))
-
-    # A_pde = A_pde[1:, ]  # Take out boundary points w.r.t. interior PDE condition
-    # lambda_interiors = lambda_interiors[1:]  # Take out boundary points w.r.t interior PDE condition
-    # f = f[1:, ]
-
-    # reset
-    # lambda_together = np.ones_like(lambda_together)
 
     concatenated_A = np.concatenate((A_pde, A_constraints), axis=0)
     A = concatenated_A * lambda_together
@@ -516,20 +460,6 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
 
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
 
-            # Periodicity constraint, evaluate on boundary
-            weight_c0 = 400
-            if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += weight_c0 * values_hjb[0, :]  # Q * M_p
-            elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= weight_c0 * values_hjb[Q, :]
-
-            # C^1 Periodicity constraint, evaluate on boundary
-            weight_c1 = 400
-            if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += weight_c1 * grads_1[0, :]
-            elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= weight_c1 * grads_1[Q, :]
-
             # Normalization constraint:
             for i in range(Q):
                 A_constraints[2, m * J_n: (m + 1) * J_n] += 1 * values_hjb[i, :]
@@ -546,8 +476,8 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_
     A = np.concatenate((A_pde, A_constraints), axis=0)
     f[-1] = 0  # normalize to 0
 
-    A = A[1:, ]  # Take out boundary points w.r.t. interior PDE condition
-    f = f[1:, ]
+    # A = A[1:, ]  # Take out boundary points w.r.t. interior PDE condition
+    # f = f[1:, ]
 
     # Solve lstsq system
     w = lstsq(A, f)[0]
@@ -615,18 +545,6 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0)
             divisor_interiors[indices] = np.maximum(divisor_interiors[indices], max_row)
 
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
-
-            # Periodicity constraint, evaluate on boundary
-            if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += values_hjb[0, :]
-            elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values_hjb[Q, :]
-
-            # C^1 Periodicity constraint, evaluate on boundary
-            if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += grads_1[0, :]
-            elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= grads_1[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
@@ -741,7 +659,7 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
     for k in range(1, n_iters + 1):
         print("Iteration {}".format(k))
 
-        historical_m.append(solve_FP_auto(models_fp, collocs_fp, historical_q[k - 1], dq, M_p_fp, J_n_fp, Q_fp))
+        historical_m.append(solve_FP(models_fp, collocs_fp, historical_q[k - 1], dq, M_p_fp, J_n_fp, Q_fp))
         plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
 
         historical_u.append(
@@ -846,7 +764,7 @@ def test():
     J_n_hjb = J_n_fp = 50
     Q_fp = 200
     Q_hjb = 200
-    n_iters = 10
+    n_iters = 30
 
     m, u = policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters)
 
