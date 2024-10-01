@@ -54,14 +54,13 @@ def init_local_RFM1d(J_n, x_min, x_max):
     return model
 
 
-def init_rfm(M_p, J_n, Q, debug=False):
+def init_rfm(M_p, J_n, Q):
     """
     Define the RFM model on each partition and their collocation points.
 
     :param M_p: number of partitions
     :param J_n: number of RF basis functions in a partition
     :param Q: number of collocation points inside a partition
-    :param debug: debug flag
     :return: models: a list of local NNs, one for each partition
              points: a list of M_p tensors, each tensor contains collocation points, with shape (Q+1, 1).
     """
@@ -71,7 +70,7 @@ def init_rfm(M_p, J_n, Q, debug=False):
         # Define RFM model in each partition, in mfg_1d_old, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
-        models.append(init_local_RFM1d(J_n, x_min, x_max, debug))
+        models.append(init_local_RFM1d(J_n, x_min, x_max))
 
         # Within each partition, get the collocation points (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
@@ -125,6 +124,14 @@ def second_diff_RFM_function(f: Callable[[torch.Tensor], torch.Tensor]) -> Tuple
 
     return df, d2f
 
+
+def v(x):
+    """
+    The given bounded potential function
+    """
+    return sin(2. * pi * x) + cos(4. * pi * x)
+
+
 def hamiltonian_1d(x, p):
     """
     Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
@@ -132,12 +139,9 @@ def hamiltonian_1d(x, p):
     Note in mfg_1d_old, |Du|**2 = (du/dx)**2
     :param x: spatial variable, each element in this variable is a list of collocation points for a partition
     :param p: velocity variable, same format as x, values are derivative Du at each point in x
-    :param v: bounded potential function
     :return: value of Hamiltonian on (x, p), same shape as x
     """
     assert len(x) == len(p)
-    def v(x):
-        return sin(2. * pi * x) + cos(4. * pi * x)
 
     if isinstance(p, torch.Tensor):
         if p.requires_grad:
@@ -153,8 +157,6 @@ def hamiltonian_1d(x, p):
 
 def lagrangian_1d(x, q):
     assert len(x) == len(q)
-    def v(x):
-        return sin(2. * pi * x) + cos(4. * pi * x)
 
     if isinstance(q, torch.Tensor):
         if q.requires_grad:
@@ -194,43 +196,6 @@ def plot_by_iter(value, title, ylabel):
     plt.show()
 
 
-def test_differentials(f_func, df_func, df2_func):
-    n_pts = 1000
-    pts = torch.linspace(0, 1, n_pts + 1).reshape([-1, 1])
-    h = (pts[1] - pts[0])[0]
-
-    f = f_func(pts).view(-1)
-    df_fd = fd_derivative(f, h)
-    df2_fd = fd_laplacian(f, h)
-
-    df = df_func(pts).view(-1)
-    df2 = df2_func(pts).view(-1)
-
-    plt.plot(pts, df_fd, label="FD Q")
-    plt.plot(pts, df, label="Q", linestyle='--')
-    plt.legend()
-    plt.title('Comparison of Q and FD Q')
-    plt.show()
-
-    plt.plot(pts[1:-1], df_fd[1:-1], label="FD Q")
-    plt.plot(pts, df, label="Q", linestyle='--')
-    plt.legend()
-    plt.title('Comparison of Q and FD Q (No endpoints)')
-    plt.show()
-
-    plt.plot(pts, df2_fd, label="FD dQ")
-    plt.plot(pts.detach().numpy(), df2.detach().numpy(), label="dQ", linestyle='--')
-    plt.legend()
-    plt.title('Comparison of dQ and FD dQ')
-    plt.show()
-
-    plt.plot(pts[1:-1], df2_fd[1:-1], label="FD dQ")
-    plt.plot(pts.detach().numpy(), df2.detach().numpy(), label="dQ", linestyle='--')
-    plt.legend()
-    plt.title('Comparison of dQ and FD dQ (No endpoints)')
-    plt.show()
-
-
 def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape(
         [-1, 1])
@@ -241,7 +206,7 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     plt.show()
 
 
-def get_fd_residuals(prev_q, curr_m, curr_u, curr_q, curr_lam, eps):
+def get_fd_residuals(prev_q, curr_m, curr_u, curr_q, curr_lam, eps, plot=False):
     n_pts = 1001
     pts = torch.linspace(0, 1, n_pts)[:-1].reshape(-1, 1)
     h = (pts[1] - pts[0]).item()
@@ -268,8 +233,9 @@ def get_fd_residuals(prev_q, curr_m, curr_u, curr_q, curr_lam, eps):
     system_fd_residual = torch.abs(hjb_system_fd_residual) + torch.abs(fp_system_fd_residual)
 
     # Plot residuals
-    plot_residuals(fp_fd_residual, fp_system_fd_residual, pts, "Fokker Planck")
-    plot_residuals(hjb_fd_residual, hjb_system_fd_residual, pts, "HJB")
+    if plot:
+        plot_residuals(fp_fd_residual, fp_system_fd_residual, pts, "Fokker Planck")
+        plot_residuals(hjb_fd_residual, hjb_system_fd_residual, pts, "HJB")
 
     return torch.sum(torch.abs(fp_fd_residual)) / n_pts, torch.sum(torch.abs(hjb_fd_residual)) / n_pts, torch.sum(
         torch.abs(system_fd_residual)) / n_pts

@@ -8,7 +8,7 @@ from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_by_iter, init_rfm, RFM
 
 
 def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
-    q = [q_func(collocs[i]).detach() for i in range(M_p)]
+    q = [q_func(collocs[i]).detach() for i in range(M_p)] #.unsqueeze(1)
     dq = [dq_func(collocs[i]).detach() for i in range(M_p)]
 
     # Compute lstsq system
@@ -18,14 +18,11 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
     # Choosing rescaling parameters
     c = 100
     divisor_interiors = np.zeros(M_p * Q)
-    divisor_boundary = np.zeros(3)
 
     # We assume non-negativity constraint in RFM also follows from normalization constraints
     # One for boundary, one for normalization, new one for derivative on boundary -> 3 in total
-    A_constraints = np.zeros([3, M_p * J_n])
-    f = np.zeros([M_p * Q + 3, 1])
-
-    h = collocs[0][1] - collocs[0][0]
+    A_constraints = np.zeros([1, M_p * J_n])
+    f = np.zeros([M_p * Q + 1, 1])
 
     for k in range(M_p):
         for m in range(M_p):
@@ -34,19 +31,14 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
             # values[i,j] = f_{mj}(points[k,i]), where f_{mj} is feature function
             values = out.detach().numpy()  # shape: (Q+1, J_n),
 
-            # Compute first and second order derivative dm/dx and d^2m/dx^2
-            grads_1 = []
-            grads_2 = []
-
-            # Compute divergence term div(q m)
-            div = []
+            # Compute second order derivative d^2m/dx^2, also the div term
+            grads_2, div = [], []
 
             for i in range(J_n):
                 # Compute gradient of i-th basis function
                 g_1 = torch.autograd.grad(outputs=out[:, i], inputs=collocs[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           create_graph=True, retain_graph=True)[0]
-                grads_1.append(g_1.squeeze().detach().numpy())
 
                 # Compute second order gradient for i-th basis function
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=collocs[k],
@@ -56,8 +48,6 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
 
                 # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'
                 div.append((g_1.squeeze() * q[k] + out[:, i] * dq[k]).detach().numpy())
-
-            grads_1 = np.array(grads_1).T  # grads_1[j,i] = D(\phi_{mi}(points[k, j]) * \psi_m(points[k, j]))
             grads_2 = np.array(grads_2).T  # grads_2[j,i] = D^2(\phi_{mi}(points[k, j]) * \psi_m(points[k, j]))
             div = np.array(div).T  # div[j,i] = div(\phi_{mi}*\psi_m * q)(points[k, j]), 0<=j<=Q, 0<=i<J_n
 
@@ -75,15 +65,12 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[2, m * J_n: (m + 1) * J_n] += values[i, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += values[i, :]
 
     # Rescaling parameters
     lambda_interiors = c / divisor_interiors
-    lambda_boundary = c / divisor_boundary
 
-    lambda_boundary[0] = 0
-    lambda_boundary[1] = 0
-    lambda_boundary[2] = 10
+    lambda_boundary = np.ones(1)
 
     lambda_together = np.concatenate((lambda_interiors, lambda_boundary), axis=0).reshape((-1, 1))
 
@@ -108,15 +95,15 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
     # Choosing rescaling parameters
     c = 100
     divisor_interiors = np.zeros(M_p * Q)
-    divisor_boundary = np.zeros(3)
+    divisor_boundary = np.zeros(1)
 
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraint
-    A_constraints = np.zeros([3, M_p * J_n])  # 2 for boundary, one for normalization -> 3 in total
-    f = np.zeros([M_p * Q + 3, 1])
+    A_constraints = np.zeros([1, M_p * J_n])  # 2 for boundary, one for normalization -> 3 in total
+    f = np.zeros([M_p * Q + 1, 1])
 
     for k in range(M_p):
         for m in range(M_p):
@@ -125,7 +112,6 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
             values_hjb = out.detach().numpy()
 
             # Compute first and second order derivative du/dx and d^2u/dx^2 for HJB
-            grads_1 = []
             grads_2 = []
             q_du = []  # Compute the (q * Du) term
 
@@ -139,12 +125,10 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
                 g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=collocs[k],
                                           grad_outputs=torch.ones_like(out[:, i]),
                                           retain_graph=True)[0]
-                grads_1.append(g_1.squeeze().detach().numpy())
                 grads_2.append(g_2.squeeze().detach().numpy())
 
                 q_du.append((g_1.squeeze() * q[k]).detach().numpy())
 
-            grads_1 = np.array(grads_1).T
             grads_2 = np.array(grads_2).T  # grads[j,i] = f''_{mi}(points[k, j])
             q_du = np.array(q_du).T  # q_du[j, i] = f'_{mi}(points[k, j]) * q(points[k, j])
 
@@ -162,7 +146,7 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[2, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
 
@@ -177,11 +161,6 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
     # A_pde = A_pde * lambda_interiors
 
     lambda_boundary = c / divisor_boundary
-
-    lambda_boundary[0] = 0
-    lambda_boundary[1] = 0
-    lambda_boundary[2] = 10
-
 
     lambda_together = np.concatenate((lambda_interiors, lambda_boundary), axis=0).reshape((-1, 1))
 
@@ -206,10 +185,7 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
     return solution, lam
 
 
-
-
-
-def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6):
+def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6, plot=False):
     # fix datatype
     torch.set_default_dtype(torch.float64)
 
@@ -229,60 +205,34 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
     # Calculate FD residuals
     fd_residual_m = np.zeros(n_iters + 1)
     fd_residual_u = np.zeros(n_iters + 1)
-    fd_residual_system = np.zeros(n_iters + 1)
+    fd_system_residual = np.zeros(n_iters + 1)
 
     # main loop
     for k in range(1, n_iters + 1):
-        print("Iteration {}".format(k))
-
+        # Step (1): Solve FP equation
         historical_m.append(solve_FP_auto(models_fp, collocs_fp, historical_q[k - 1], dq, M_p_fp, J_n_fp, Q_fp))
-        plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
+        if plot:
+            plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
 
+        # Step (2): Solve HJB and the ergodic cost
         curr_u, curr_lam = solve_HJB_auto(models_hjb, collocs_hjb, historical_m[k], historical_q[k - 1], M_p_hjb, J_n_hjb, Q_hjb)
         historical_u.append(curr_u)
+        if plot:
+            plot_RFM_1d(curr_u, "u^(" + str(k) + ")")
         historical_lam.append(curr_lam)
 
+        # Step (3): Update the policy
         new_q, dq = second_diff_RFM_function(historical_u[k])
         historical_q.append(new_q)
 
-        if k == 1:
-            def plot_u1(u1, eps):
-                # Plotting u_1 to true u_1 together
-                n_pts = 1000
-                pts = torch.linspace(0, 1, n_pts, dtype=torch.float64).reshape(-1, 1)
-                u1_true = - 1 / (12 * eps) + pts / (2 * eps) + np.sin(2 * np.pi * pts) / (
-                            4 * eps * np.pi ** 2) + np.cos(
-                    4 * np.pi * pts) / (16 * eps * np.pi ** 2) - pts ** 2 / (2 * eps)
-
-                # FD difference using true_u1
-                h = (pts[1] - pts[0])[0]
-                eLapU = eps * fd_laplacian(u1_true.view(-1), h)
-                Lq = lagrangian_1d(pts.view(-1), torch.zeros_like(u1_true).view(-1))
-                true_FD_residual = eLapU.view(-1) - Lq - torch.ones_like(Lq)
-
-                plt.figure(figsize=(10, 6))
-                plt.plot(pts, u1_true, label='true u1')
-                plt.plot(pts, u1(pts).detach().numpy(), label='numerical u1')
-                plt.xlabel('x')
-                plt.ylabel('u^1(x)')
-                plt.title('Numerical u^1 vs true u^1')
-                plt.legend()
-                plt.show()
-            plot_u1(historical_u[k], eps)
-        else:
-            plot_RFM_1d(historical_u[k], "u^(" + str(k) + ")")
-
-
-
-        # Test whether this computation of q and dq are accurate using finite difference method
-
         # Compute residuals
-        fd_residual_m[k], fd_residual_u[k], fd_residual_system[k] = get_fd_residuals(historical_q[k - 1],
+        fd_residual_m[k], fd_residual_u[k], fd_system_residual[k] = get_fd_residuals(historical_q[k - 1],
                                                                                      historical_m[k], historical_u[k],
                                                                                      historical_q[k], curr_lam, eps)
 
-    plot_by_iter(fd_residual_m, 'FD Residual error of Fokker-Planck', 'Residual error')
-    plot_by_iter(fd_residual_u, 'FD Residual error of HJB', 'Residual error')
-    plot_by_iter(fd_residual_system, 'FD Residual error of System', 'Residual error')
+    if plot:
+        plot_by_iter(fd_residual_m, 'FD Residual error of Fokker-Planck', 'Residual error')
+        plot_by_iter(fd_residual_u, 'FD Residual error of HJB', 'Residual error')
+        plot_by_iter(fd_system_residual, 'FD Residual error of System', 'Residual error')
 
-    return historical_m[-1], historical_u[-1]
+    return historical_m[-1], historical_u[-1], fd_system_residual
