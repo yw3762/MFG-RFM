@@ -49,9 +49,10 @@ class RFM_rep(nn.Module):
         d3 = (tilde_x >= 3 / 4) & (tilde_x < 5 / 4)
 
         # y_i are the PoU w.r.t each location of x
-        y1 = phi_nj * (1 + torch.sin(2 * np.pi * tilde_x)) / 2
+        sin_term = torch.sin(2 * np.pi * tilde_x)
+        y1 = phi_nj * (1 + sin_term) / 2
         y2 = phi_nj
-        y3 = phi_nj * (1 - torch.sin(2 * np.pi * tilde_x)) / 2
+        y3 = phi_nj * (1 - sin_term) / 2
 
         values = d1 * y1 + d2 * y2 + d3 * y3
         return values
