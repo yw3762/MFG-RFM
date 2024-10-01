@@ -23,12 +23,25 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-def init_local_RFM1d(J_n, x_min, x_max, debug=False):
-    def weights_init(m):
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.uniform_(m.weight, a=-1, b=1)
-            nn.init.uniform_(m.bias, a=-1, b=1)
+def weights_init(m):
+    """
+    Initialize weights for the given nn.Module
+    :param m: some nn.Module
+    :return: None
+    """
+    if isinstance(m, (nn.Conv2d, nn.Linear)):
+        nn.init.uniform_(m.weight, a=-1, b=1)
+        nn.init.uniform_(m.bias, a=-1, b=1)
 
+
+def init_local_RFM1d(J_n, x_min, x_max):
+    """
+    Initialize the random feature functions inside a partition [x_min, x_max]
+    :param J_n: number of random feature functions
+    :param x_min: left end of partition
+    :param x_max: right end of partition
+    :return: An RF model on a partition
+    """
     model = RFM_rep(in_features=1, J_n=J_n, x_min=x_min, x_max=x_max)
 
     # Randomly initialize parameter (uniform[-1,1]), in double precision
@@ -77,7 +90,6 @@ def RFM_function_factory(models: List[Callable[[torch.Tensor], torch.Tensor]], w
     Returns:
         Callable[[torch.Tensor], torch.Tensor]: A function that computes the weighted sum of model outputs.
     """
-
     def rfm_function(x):
         return torch.sum(
             torch.stack([
@@ -230,7 +242,6 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
 
 
 def get_fd_residuals(prev_q, curr_m, curr_u, curr_q, curr_lam, eps):
-    # TODO: Check how we take these derivatives. It should be clear that
     n_pts = 1001
     pts = torch.linspace(0, 1, n_pts)[:-1].reshape(-1, 1)
     h = (pts[1] - pts[0]).item()
