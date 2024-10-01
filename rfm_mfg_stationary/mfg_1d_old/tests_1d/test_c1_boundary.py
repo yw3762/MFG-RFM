@@ -3,7 +3,6 @@ from torch import sin, cos, pi
 import torch.nn as nn
 import numpy as np
 import random
-import json
 import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 from typing import Callable, List, Tuple
@@ -107,12 +106,12 @@ def init_rfm(M_p, J_n, Q, debug=False):
     models = []
     points = []
     for k in range(M_p):
-        # Define RFM model in each partition, in mfg_1d, partition is just an interval [x_min, x_max]
+        # Define RFM model in each partition, in mfg_1d_old, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
         models.append(init_local_RFM1d(J_n, x_min, x_max, debug))
 
-        # Within each partition, get the collocation points (mfg_1d) as a column vector
+        # Within each partition, get the collocation points (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 
@@ -263,22 +262,20 @@ def test_fp_r_4(x, eps):
             cos(pi * x) * sin(2 * pi * x) + 2 * sin(pi * x) * cos(2 * pi * x))
 
 
-def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
+def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, MMS_attempt=4):
     q = [q_func(collocs[i]).detach() for i in range(M_p)]
     dq = [dq_func(collocs[i]).detach() for i in range(M_p)]
+
 
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
     A_pde = np.zeros([M_p * Q, M_p * J_n])
-
-    # Choosing rescaling parameters
-    c = 100
-    divisor_interiors = np.zeros(M_p * Q)
-    divisor_boundary = np.zeros(3)
+    A_MMS_pde = np.zeros([M_p * Q, M_p * J_n])
 
     # We assume non-negativity constraint in RFM also follows from normalization constraints
     # One for boundary, one for normalization, new one for derivative on boundary -> 3 in total
     A_constraints = np.zeros([3, M_p * J_n])
+    # A_4 = np.zeros([M_p - 1, M_p * J_n])
     f = np.zeros([M_p * Q + 3, 1])
 
     h = collocs[0][1] - collocs[0][0]
@@ -313,64 +310,39 @@ def solve_FP(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
                 # In d=1, div(m*q) = d(m*q)/dx = m' * q + m * q'
                 div.append((g_1.squeeze() * q[k] + out[:, i] * dq[k]).detach().numpy())
 
-            grads_1 = np.array(grads_1).T  # grads_1[j,i] = D(\phi_{mi}(points[k, j]) * \psi_m(points[k, j]))
-            grads_2 = np.array(grads_2).T  # grads_2[j,i] = D^2(\phi_{mi}(points[k, j]) * \psi_m(points[k, j]))
-            div = np.array(div).T  # div[j,i] = div(\phi_{mi}*\psi_m * q)(points[k, j]), 0<=j<=Q, 0<=i<J_n
+            grads_1 = np.array(grads_1).T  # grads_1[j,i] = f'_{mi}(points[k, j])
+            grads_2 = np.array(grads_2).T  # grads_2[j,i] = f''_{mi}(points[k, j])
+            grad_l = grads_1[0, :]
+            grad_r = grads_1[-1, :]
+            div = np.array(div).T  # div[j,i] = div(f_{mi}q)(points[k, j])
 
             # Impose PDE condition: Lm = -eps * dm^2/dx^2 - div(m * q)
-            Lm = - eps * grads_2 - div # Lm[j,i] = L(\phi_{mi}\psi_m)(points[k, j]) 0<=j<=Q, 0<=i<J_n
-
-            # Calculate rescaling divisor
-            max_row = np.max(np.abs(Lm), axis=1)
-
-            indices = np.arange(k*Q, (k+1)*Q+1) % len(divisor_interiors)
-            divisor_interiors[indices] = np.maximum(divisor_interiors[indices], max_row)
+            Lm = - eps * grads_2 - div # Lm[j,i] = Lm(points[k, j]) with i-th factor of m
 
             # Specifying A_pde
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lm[:Q, :]
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += values[0, :]
-                divisor_boundary[0] = max(divisor_boundary[0], np.max(np.abs(values[0, :])))
+                A_constraints[0, m * J_n: (m + 1) * J_n] += 80 * values[0, :]
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values[Q, :]
-                divisor_boundary[0] = max(divisor_boundary[0], np.max(np.abs(values[Q, :])))
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= 80 * values[Q, :]
 
-            # New C^1 condition on boundary
+            # # New C^1 condition on boundary
             if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += grads_1[0, :]
-                divisor_boundary[1] = max(divisor_boundary[1], np.max(np.abs(grads_1[0, :])))
+                A_constraints[2, m * J_n: (m + 1) * J_n] += 80 * grads_1[0, :]
             elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= grads_1[Q, :]
-                divisor_boundary[1] = max(divisor_boundary[1], np.max(np.abs(grads_1[Q, :])))
+                A_constraints[2, m * J_n: (m + 1) * J_n] -= 80 * grads_1[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[2, m * J_n: (m + 1) * J_n] += values[i, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] += 1 * values[i, :]
 
-    # Rescaling parameters
-    lambda_interiors = c / divisor_interiors
-    lambda_boundary = c / divisor_boundary
+    A = np.concatenate((A_pde, A_constraints), axis=0)
+    f[M_p * Q+1] = 1 * M_p * Q  # normalize to 1
 
-    lambda_boundary[0] = 1000
-    lambda_boundary[1] = 1000
-    lambda_boundary[2] = 10
-
-    lambda_together = np.concatenate((lambda_interiors, lambda_boundary), axis=0).reshape((-1, 1))
-
-    # A_pde = A_pde[1:, ]  # Take out boundary points w.r.t. interior PDE condition
-    # lambda_interiors = lambda_interiors[1:]  # Take out boundary points w.r.t interior PDE condition
-    # f = f[1:, ]
-
-    # reset
-    # lambda_together = np.ones_like(lambda_together)
-
-    concatenated_A = np.concatenate((A_pde, A_constraints), axis=0)
-    A = concatenated_A * lambda_together
-    f[-1] = 1 * M_p * Q  # normalize to 1
-
-    f = f * lambda_together
+    A = A[1:, ]  # Take out boundary points w.r.t. interior PDE condition
+    f = f[1:, ]
 
     # Solve lstsq system
     w = lstsq(A, f)[0]
@@ -390,13 +362,8 @@ def compare_RFM_true(RFM_sol, true_sol):
     return l1_err
 
 
-def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0):
+def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0, MMS_attempt=5):
     q = [q_func(collocs[i]).detach() for i in range(M_p)]
-
-    # Choosing rescaling parameters
-    c = 100
-    divisor_interiors = np.zeros(M_p * Q)
-    divisor_boundary = np.zeros(3)
 
     # Compute lstsq system
     # place-holder variables for A, where f is 0 by definition
@@ -438,61 +405,38 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0):
 
             # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
             # Lu[j, i] =  - eps * f'_{mi}(points[k, j]) + f'_{mi}(points[k, j]) * q(points[k, j])
-            Lu = - eps * grads_2 + q_du # shape=(Q+1, J_n)
-
-            # Calculate rescaling divisor
-            max_row = np.max(np.abs(Lu), axis=1)
-
-            indices = np.arange(k * Q, (k + 1) * Q + 1) % len(divisor_interiors)
-            divisor_interiors[indices] = np.maximum(divisor_interiors[indices], max_row)
+            Lu = - eps * grads_2 + q_du  # shape=(Q+1, J_n)
 
             A_pde[k * Q: (k + 1) * Q, m * J_n: (m + 1) * J_n] = Lu[:Q, :] + lam
 
             # Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[0, m * J_n: (m + 1) * J_n] += values_hjb[0, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] += 400 * values_hjb[0, :] # Q * M_p
             elif k == M_p - 1:
-                A_constraints[0, m * J_n: (m + 1) * J_n] -= values_hjb[Q, :]
+                A_constraints[0, m * J_n: (m + 1) * J_n] -= 400 * values_hjb[Q, :]
 
             # C^1 Periodicity constraint, evaluate on boundary
             if k == 0:
-                A_constraints[1, m * J_n: (m + 1) * J_n] += grads_1[0, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] += 1 * grads_1[0, :]
             elif k == M_p - 1:
-                A_constraints[1, m * J_n: (m + 1) * J_n] -= grads_1[Q, :]
+                A_constraints[1, m * J_n: (m + 1) * J_n] -= 1 * grads_1[Q, :]
 
             # Normalization constraint:
             for i in range(Q):
-                A_constraints[2, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
+                A_constraints[2, m * J_n: (m + 1) * J_n] += 1 * values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
-
         Lq = lagrangian_1d(collocs[k], q[k])
         Fm = m_func(collocs[k]).view(-1) ** 2  # The coupling term is F(m) = m^2
         summed = Fm + Lq
         trimmed = summed[:Q].detach().numpy().reshape(-1, 1)
         f[k * Q:(k + 1) * Q, :] = trimmed
 
-    # Rescaling parameters
-    lambda_interiors = c / divisor_interiors
-    A_pde = A_pde * lambda_interiors
-
-    lambda_boundary = c / divisor_boundary
-
-    lambda_boundary[0] = 100
-    lambda_boundary[1] = 100
-    lambda_boundary[2] = 10
-
-
-    lambda_together = np.concatenate((lambda_interiors, lambda_boundary), axis=0).reshape((-1, 1))
-
-    # reset
-    lambda_together = np.ones_like(lambda_together)
-
-    concatenated_A = np.concatenate((A_pde, A_constraints), axis=0)
-    A = concatenated_A * lambda_together
-
+    A = np.concatenate((A_pde, A_constraints), axis=0)
     f[-1] = 0  # normalize to 0
-    f = f * lambda_together
+
+    A = A[1:, ]  # Take out boundary points w.r.t. interior PDE condition
+    f = f[1:, ]
 
     # Solve lstsq system
     w = lstsq(A, f)[0]
@@ -501,7 +445,6 @@ def solve_HJB(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, lam=0):
     solution = RFM_function_factory(models, w)
 
     return solution
-
 
 
 def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6):
@@ -520,14 +463,12 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
     historical_q = [None]
     historical_q[0], dq = second_diff_RFM_function(historical_u[0])
 
-
-
     # main loop
     for k in range(1, n_iters + 1):
         print("Iteration {}".format(k))
 
         historical_m.append(solve_FP(models_fp, collocs_fp, historical_q[k - 1], dq, M_p_fp, J_n_fp, Q_fp))
-        plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
+        plot_RFM_1d(historical_m[k], "m^("+str(k)+")")
 
         historical_u.append(
             solve_HJB(models_hjb, collocs_hjb, historical_m[k], historical_q[k - 1], M_p_hjb, J_n_hjb, Q_hjb))
@@ -589,33 +530,18 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     plt.show()
 
 
-def test_rescale():
+def test():
     set_seed(100)
     M_p_hjb = M_p_fp = 4
     J_n_hjb = J_n_fp = 50
-    Q_hjb = Q_fp = 100
+    Q_hjb = Q_fp = 200
     n_iters = 20
 
-    # pde_weights = [0.1, 0.2, 0.4, 0.8, 1]
-    # c0_weights = [0.2, 0.4, 0.8, 1, 2, 4]
-    # c1_weights = [0.2, 0.4, 0.8, 1, 2, 4]
-    # normalize_weights = [0.5, 1, 2]
-    #
-    # rescales = []
-    # for pde_weight in pde_weights:
-    #     for c0_weight in c0_weights:
-    #         for c1_weight in c1_weights:
-    #             for normalize_weight in normalize_weights:
-    #                 rescales.append({'pde': pde_weight, 'c0': c0_weight, 'c1': c1_weight, 'normalize': normalize_weight})
-    #
-    # for rescale_fp in rescales:
-    #     for rescale_hjb in rescales:
-    #         _, _ = policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, rescale_fp, rescale_hjb, n_iters)
+    m, u = policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters)
 
-    _, _ = policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters)
-    # plot_RFM_1d(m, "final m")
-    # plot_RFM_1d(u, "final u")
+    plot_RFM_1d(m, "final m")
+    plot_RFM_1d(u, "final u")
 
 
 if __name__ == '__main__':
-    test_rescale()
+    test()

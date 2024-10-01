@@ -106,12 +106,12 @@ def init_rfm(M_p, J_n, Q, debug=False):
     models = []
     points = []
     for k in range(M_p):
-        # Define RFM model in each partition, in mfg_1d, partition is just an interval [x_min, x_max]
+        # Define RFM model in each partition, in mfg_1d_old, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
         models.append(init_local_RFM1d(J_n, x_min, x_max, debug))
 
-        # Within each partition, get the collocation points (mfg_1d) as a column vector
+        # Within each partition, get the collocation points (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 

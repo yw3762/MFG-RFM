@@ -5,7 +5,7 @@ import sympy as sp
 import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import set_seed, init_rfm, plot_RFM_1d, second_derivative_RFM_1d
+from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import set_seed, init_rfm, plot_RFM_1d, second_derivative_RFM_1d
 from rfm_helm1d.RFM_helm1d_PoU_psi_b_pytorch import pre_define, cal_matrix
 
 class MyTest(unittest.TestCase):

@@ -133,7 +133,7 @@ def pre_define(M_p, J_n, Q):
             param.requires_grad = False  # Freeze the layers, i.e. fix parameters
         models.append(model)
 
-        # Within each partition, get the boundary pts (mfg_1d) as a column vector
+        # Within each partition, get the boundary pts (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 

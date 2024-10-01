@@ -55,12 +55,12 @@ def init_rfm(M_p, J_n, Q, debug=False):
     models = []
     points = []
     for k in range(M_p):
-        # Define RFM model in each partition, in mfg_1d, partition is just an interval [x_min, x_max]
+        # Define RFM model in each partition, in mfg_1d_old, partition is just an interval [x_min, x_max]
         x_min = INTERVAL_LENGTH / M_p * k
         x_max = INTERVAL_LENGTH / M_p * (k + 1)
         models.append(init_local_RFM1d(J_n, x_min, x_max, debug))
 
-        # Within each partition, get the collocation points (mfg_1d) as a column vector
+        # Within each partition, get the collocation points (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 
@@ -117,7 +117,7 @@ def hamiltonian_1d(x, p):
     """
     Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
 
-    Note in mfg_1d, |Du|**2 = (du/dx)**2
+    Note in mfg_1d_old, |Du|**2 = (du/dx)**2
     :param x: spatial variable, each element in this variable is a list of collocation points for a partition
     :param p: velocity variable, same format as x, values are derivative Du at each point in x
     :param v: bounded potential function

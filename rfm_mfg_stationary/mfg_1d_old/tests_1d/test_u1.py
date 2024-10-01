@@ -8,7 +8,7 @@ from scipy.linalg import lstsq, pinv
 import matplotlib.pyplot as plt
 import random
 
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_RFM_1d, V
+from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import plot_RFM_1d, V
 
 # fix random seed
 torch.set_default_dtype(torch.float64)
@@ -136,7 +136,7 @@ def pre_define(M_p, J_n, Q):
             param.requires_grad = False  # Freeze the layers, i.e. fix parameters
         models.append(model)
 
-        # Within each partition, get the boundary pts (mfg_1d) as a column vector
+        # Within each partition, get the boundary pts (mfg_1d_old) as a column vector
         points.append(torch.tensor(np.linspace(x_min, x_max, Q + 1), requires_grad=True).reshape([-1, 1]))
     return models, points
 

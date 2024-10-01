@@ -3,12 +3,12 @@ import time
 import torch
 from scipy.linalg import lstsq, pinv
 
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import second_derivative_RFM_1d, set_seed, init_rfm, plot_RFM_1d
+from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import second_derivative_RFM_1d, set_seed, init_rfm, plot_RFM_1d
 
 
 def solve_fokker_planck_1d_simplified(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):
     """
-    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic mfg_1d MFG
+    This function solves the Fokker-Planck PDE in first step of policy iteration algorithm for ergodic mfg_1d_old MFG
 
     The equation is:
     $-\varepsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
@@ -17,7 +17,7 @@ def solve_fokker_planck_1d_simplified(models, collocs, models_u, w_u, M_p, J_n, 
         2. (Non-negativity) $m \geq 0$
         3. (Periodicity) $m(0) = m(1)$
 
-    We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
+    We identify the mfg_1d_old-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
     :param models:
     :param collocs:
     :param models_u:

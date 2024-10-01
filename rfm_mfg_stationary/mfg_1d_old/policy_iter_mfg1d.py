@@ -6,11 +6,11 @@ import numpy.typing as npt
 from typing import Callable, Any
 
 from classes.error_tracker import ErrorTracker1D
-from rfm_mfg_stationary.mfg_1d.utils.types import create_error_array, ErrorArray
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
+from rfm_mfg_stationary.mfg_1d_old.utils.types import create_error_array, ErrorArray
+from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
     update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function, get_fd_residual
-from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
-from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d
+from rfm_mfg_stationary.mfg_1d_old.rfm_FP import solve_fokker_planck_1d
+from rfm_mfg_stationary.mfg_1d_old.rfm_HJB import solve_hjb_1d
 
 
 def should_terminate(curr_u, prev_u, curr_q_anal, prev_q_anal, tau, n_pts=1000):
@@ -35,7 +35,7 @@ def should_terminate(curr_u, prev_u, curr_q_anal, prev_q_anal, tau, n_pts=1000):
 def solve_1d_stationary_mfg(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6,
                             intermediate_plot=False, random_init_q=False):
     """
-    Solve the mfg_1d stationary mean-field game with policy iteration, in each iteration, the two PDE systems (FP, HJB)
+    Solve the mfg_1d_old stationary mean-field game with policy iteration, in each iteration, the two PDE systems (FP, HJB)
     are numerically solved using RFM method.
 
     :param M_p_hjb: number of partitions for HJB

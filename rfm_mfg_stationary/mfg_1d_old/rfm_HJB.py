@@ -2,12 +2,12 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import lagrangian_1d, RFM_function_factory
+from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import lagrangian_1d, RFM_function_factory
 
 
 def solve_hjb_1d(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=False):
     """
-    This function solves the HJB PDE in second step of policy iteration algorithm for ergodic mfg_1d MFG
+    This function solves the HJB PDE in second step of policy iteration algorithm for ergodic mfg_1d_old MFG
 
     The equation is:
     $-\epsilon\frac{d^2m^{(k)}}{dx^2}-\frac{dm^{(k)}q^{(k)}}{dx}=0$ on $\mathbb{T}^1 = [0,1]$
@@ -16,7 +16,7 @@ def solve_hjb_1d(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=Fa
         2. (Non-negativity) $m \geq 0$
         3. (Periodicity) $m(0) = m(1)$
 
-    We identify the mfg_1d-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
+    We identify the mfg_1d_old-torus with [0,1] with identified endpoints, and write u instead of m for consistency.
 
     :param models: RFM model for HJB PDE
     :param w_hjb: weights for HJB RFM from previous iteration
