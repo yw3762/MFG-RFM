@@ -6,8 +6,8 @@ import random
 import matplotlib.pyplot as plt
 from typing import Callable, List, Tuple
 
-from rfm_mfg_stationary.mfg_1d_clean.utils.config import INTERVAL_LENGTH
-from rfm_mfg_stationary.mfg_1d_clean.models.RFM_rep import RFM_rep
+from rfm_mfg_stationary.mfg_1d.utils.config import INTERVAL_LENGTH
+from rfm_mfg_stationary.mfg_1d.models.RFM_rep import RFM_rep
 
 
 def set_seed(seed):

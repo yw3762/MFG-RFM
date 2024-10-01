@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-from rfm_mfg_stationary.mfg_1d_clean.utils.config import INTERVAL_LENGTH
+from rfm_mfg_stationary.mfg_1d.utils.config import INTERVAL_LENGTH
 
 class RFM_rep(nn.Module):
     def __init__(self, in_features, J_n, x_max, x_min):

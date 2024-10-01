@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 
-from rfm_mfg_stationary.mfg_1d_clean.utils.utils_1d import plot_by_iter, init_rfm, RFM_function_factory, \
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_by_iter, init_rfm, RFM_function_factory, \
     second_diff_RFM_function, plot_RFM_1d, fd_laplacian, lagrangian_1d, get_fd_residuals
 
 
