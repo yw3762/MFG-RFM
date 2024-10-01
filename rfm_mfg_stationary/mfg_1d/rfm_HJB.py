@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import lagrangian_1d, evaluate_RFM_1d, differentiate_RFM_1d, RFM_function_factory
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import lagrangian_1d, RFM_function_factory
 
 
 def solve_hjb_1d(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3, moore=False):

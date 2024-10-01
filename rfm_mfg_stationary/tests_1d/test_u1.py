@@ -8,7 +8,7 @@ from scipy.linalg import lstsq, pinv
 import matplotlib.pyplot as plt
 import random
 
-from utils.utils_1d import plot_RFM_1d, V
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_RFM_1d, V
 
 # fix random seed
 torch.set_default_dtype(torch.float64)

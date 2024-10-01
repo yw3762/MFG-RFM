@@ -1,7 +1,6 @@
 import unittest
 
-from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
-from utils.utils_1d import init_rfm, set_seed
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import init_rfm, set_seed
 
 
 class MyTestCase(unittest.TestCase):

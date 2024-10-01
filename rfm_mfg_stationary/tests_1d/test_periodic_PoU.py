@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 from typing import Callable, List, Tuple
 
-from utils.utils_1d import plot_by_iter
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_by_iter
 
 INTERVAL_LENGTH = 1.0
 

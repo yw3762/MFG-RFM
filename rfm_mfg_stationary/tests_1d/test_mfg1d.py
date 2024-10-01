@@ -1,5 +1,5 @@
 from rfm_mfg_stationary.mfg_1d.policy_iter_mfg1d import solve_1d_stationary_mfg
-from utils.utils_1d import plot_RFM_1d, set_seed
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_RFM_1d, set_seed
 
 
 def test():

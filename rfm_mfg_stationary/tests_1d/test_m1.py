@@ -3,7 +3,7 @@ import time
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import second_derivative_RFM_1d, set_seed, init_rfm, plot_RFM_1d
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import second_derivative_RFM_1d, set_seed, init_rfm, plot_RFM_1d
 
 
 def solve_fokker_planck_1d_simplified(models, collocs, models_u, w_u, M_p, J_n, Q, eps=0.3, tau=1e-8, plot=False, moore=False):

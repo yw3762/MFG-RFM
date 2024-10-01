@@ -5,8 +5,8 @@ import random
 import matplotlib.pyplot as plt
 from typing import List, Callable, Tuple
 
-from utils.types import ErrorArray
-from utils.config import INTERVAL_LENGTH
+from rfm_mfg_stationary.mfg_1d.utils.types import ErrorArray
+from rfm_mfg_stationary.mfg_1d.utils.config import INTERVAL_LENGTH
 
 
 def set_seed(x):
@@ -28,32 +28,18 @@ def weights_init(m):
         nn.init.uniform_(m.bias, a=-1, b=1)
 
 
-def weights_init_debug(m):
-    """
-    Randomly initialize parameters in the Conv2d or Linear layer.
-    :param m:  the given layer
-    :return:   None
-    """
-    if isinstance(m, (nn.Conv2d, nn.Linear)):
-        m.weight.data.fill_(1)
-        m.bias.data.fill_(0)
-
-
-def init_local_RFM1d(J_n, x_min, x_max, debug=False):
+def init_local_RFM1d(J_n, x_min, x_max):
     """
     Initialize RFM network on a mfg_1d domain, i.e. the interval [x_min, x_max].
-    :param J_n:
-    :param x_min:
-    :param x_max:
-    :return:
+    :param J_n: Number of RF functions inside each partition
+    :param x_min: left-end of the partition
+    :param x_max: right-end of the partition
+    :return: The RF model over the given partition
     """
     model = RFM_rep(in_features=1, J_n=J_n, x_min=x_min, x_max=x_max)
 
     # Randomly initialize parameter (uniform[-1,1]), in double precision
-    if debug:
-        model = model.apply(weights_init_debug)
-    else:
-        model = model.apply(weights_init)
+    model = model.apply(weights_init)
     model = model.double()
 
     # Freeze the randomly initialized parameters

@@ -6,8 +6,8 @@ import numpy.typing as npt
 from typing import Callable, Any
 
 from classes.error_tracker import ErrorTracker1D
-from utils.types import create_error_array, ErrorArray
-from utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
+from rfm_mfg_stationary.mfg_1d.utils.types import create_error_array, ErrorArray
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
     update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function, get_fd_residual
 from rfm_mfg_stationary.mfg_1d.rfm_FP import solve_fokker_planck_1d
 from rfm_mfg_stationary.mfg_1d.rfm_HJB import solve_hjb_1d

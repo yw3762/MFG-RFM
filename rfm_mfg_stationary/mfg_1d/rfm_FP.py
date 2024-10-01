@@ -3,7 +3,7 @@ import time
 import torch
 from scipy.linalg import lstsq, pinv
 
-from utils.utils_1d import second_derivative_RFM_1d, RFM_function_factory
+from rfm_mfg_stationary.mfg_1d.utils.utils_1d import RFM_function_factory
 
 
 def solve_fokker_planck_1d(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3, moore=False):
