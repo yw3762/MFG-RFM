@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Protocol
 
-from classes.error_tracker import ErrorTracker1D
+from rfm_mfg_stationary.mfg_1d_old.classes.error_tracker import ErrorTracker1D
 
 
 # Define a protocol for array-like objects that are sized and support indexing with assignment

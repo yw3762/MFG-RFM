@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy.typing as npt
 from typing import Callable, Any
 
-from classes.error_tracker import ErrorTracker1D
+from rfm_mfg_stationary.mfg_1d_old.classes.error_tracker import ErrorTracker1D
 from rfm_mfg_stationary.mfg_1d_old.utils.types import create_error_array, ErrorArray
 from rfm_mfg_stationary.mfg_1d_old.utils.utils_1d import init_rfm, residual_error_fp, residual_error_hjb, constraint_test, RFM_function_factory, \
     update_l1_err_test, plot_errors, plot_by_iter, second_diff_RFM_function, get_fd_residual
