@@ -1,14 +1,13 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.linalg import lstsq
 
 from rfm_mfg_stationary.mfg_1d.utils.utils_1d import plot_by_iter, init_rfm, RFM_function_factory, \
-    second_diff_RFM_function, plot_RFM_1d, fd_laplacian, lagrangian_1d, get_fd_residuals
+    second_diff_RFM_function, plot_RFM_1d, lagrangian_1d, get_fd_residuals
 
 
-def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
-    q = [q_func(collocs[i]).detach() for i in range(M_p)] #.unsqueeze(1)
+def solve_FP_forward(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
+    q = [q_func(collocs[i]).detach() for i in range(M_p)]
     dq = [dq_func(collocs[i]).detach() for i in range(M_p)]
 
     # Compute lstsq system
@@ -52,12 +51,12 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
             div = np.array(div).T  # div[j,i] = div(\phi_{mi}*\psi_m * q)(points[k, j]), 0<=j<=Q, 0<=i<J_n
 
             # Impose PDE condition: Lm = -eps * dm^2/dx^2 - div(m * q)
-            Lm = - eps * grads_2 - div # Lm[j,i] = L(\phi_{mi}\psi_m)(points[k, j]) 0<=j<=Q, 0<=i<J_n
+            Lm = - eps * grads_2 - div  # Lm[j,i] = L(\phi_{mi}\psi_m)(points[k, j]) 0<=j<=Q, 0<=i<J_n
 
             # Calculate rescaling divisor
             max_row = np.max(np.abs(Lm), axis=1)
 
-            indices = np.arange(k*Q, (k+1)*Q+1) % len(divisor_interiors)
+            indices = np.arange(k * Q, (k + 1) * Q + 1) % len(divisor_interiors)
             divisor_interiors[indices] = np.maximum(divisor_interiors[indices], max_row)
 
             # Specifying A_pde
@@ -89,7 +88,7 @@ def solve_FP_auto(models, collocs, q_func, dq_func, M_p, J_n, Q, eps=0.3):
     return solution
 
 
-def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
+def solve_HJB_forward(models, collocs, m_func, q_func, M_p, J_n, Q, L_func, b=None, eps=0.3):
     q = [q_func(collocs[i]).detach() for i in range(M_p)]
 
     # Choosing rescaling parameters
@@ -134,7 +133,7 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
 
             # Impose PDE condition: Lu = -eps * du^2/dx^2 - div(u * q)
             # Lu[j, i] =  - eps * f'_{mi}(points[k, j]) + f'_{mi}(points[k, j]) * q(points[k, j])
-            Lu = - eps * grads_2 + q_du # shape=(Q+1, J_n)
+            Lu = - eps * grads_2 + q_du  # shape=(Q+1, J_n)
 
             # Calculate rescaling divisor
             max_row = np.max(np.abs(Lu), axis=1)
@@ -149,8 +148,10 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
                 A_constraints[0, m * J_n: (m + 1) * J_n] += values_hjb[i, :]
 
         # The f-side of discretized Lu=f system
-
-        Lq = lagrangian_1d(collocs[k], q[k])
+        if b:
+            Lq = L_func(collocs[k], q[k], b)
+        else:
+            Lq = L_func(collocs[k], q[k])
         Fm = m_func(collocs[k]).view(-1) ** 2  # The coupling term is F(m) = m^2
         summed = Fm + Lq
         trimmed = summed[:Q].detach().numpy().reshape(-1, 1)
@@ -185,15 +186,15 @@ def solve_HJB_auto(models, collocs, m_func, q_func, M_p, J_n, Q, eps=0.3):
     return solution, lam
 
 
-def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, eps=0.3, tau=1e-6, plot=False):
+def policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=None, n_iters=20, eps=0.3, tau=1e-6, plot=False):
     # fix datatype
     torch.set_default_dtype(torch.float64)
 
     # Initialize RFMs for FP and HJB with zero weights
-    models_fp, collocs_fp = init_rfm(M_p_fp, J_n_fp, Q_fp)
-    models_hjb, collocs_hjb = init_rfm(M_p_hjb, J_n_hjb, Q_hjb)
-    w_hjb = torch.zeros((M_p_hjb, J_n_hjb))
-    w_fp = torch.zeros((M_p_fp, J_n_fp))
+    models_fp, collocs_fp = init_rfm(Mm, Jm, Qm)
+    models_hjb, collocs_hjb = init_rfm(Mu, Ju, Qu)
+    w_hjb = torch.zeros((Mu, Ju))
+    w_fp = torch.zeros((Mm, Jm))
 
     # historical solutions and policies
     historical_m = [RFM_function_factory(models_fp, w_fp)]
@@ -210,12 +211,13 @@ def policy_iteration(M_p_hjb, J_n_hjb, M_p_fp, J_n_fp, Q_hjb, Q_fp, n_iters=20, 
     # main loop
     for k in range(1, n_iters + 1):
         # Step (1): Solve FP equation
-        historical_m.append(solve_FP_auto(models_fp, collocs_fp, historical_q[k - 1], dq, M_p_fp, J_n_fp, Q_fp))
+        historical_m.append(solve_FP_forward(models_fp, collocs_fp, historical_q[k - 1], dq, Mm, Jm, Qm))
         if plot:
             plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
 
         # Step (2): Solve HJB and the ergodic cost
-        curr_u, curr_lam = solve_HJB_auto(models_hjb, collocs_hjb, historical_m[k], historical_q[k - 1], M_p_hjb, J_n_hjb, Q_hjb)
+        curr_u, curr_lam = solve_HJB_forward(models_hjb, collocs_hjb, historical_m[k], historical_q[k - 1], Mu,
+                                             Ju, Qu, lagrangian_1d, b)
         historical_u.append(curr_u)
         if plot:
             plot_RFM_1d(curr_u, "u^(" + str(k) + ")")

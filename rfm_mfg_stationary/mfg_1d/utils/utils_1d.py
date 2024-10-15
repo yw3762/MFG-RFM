@@ -132,7 +132,7 @@ def v(x):
     return sin(2. * pi * x) + cos(4. * pi * x)
 
 
-def hamiltonian_1d(x, p):
+def hamiltonian_1d(x, p, b=v):
     """
     Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
 
@@ -147,25 +147,25 @@ def hamiltonian_1d(x, p):
         if p.requires_grad:
             p.detach()
 
-        return p ** 2 / 2 - v(x).view(-1)
+        return p ** 2 / 2 - b(x).view(-1)
     else:
         result = []
         for i in range(len(x)):
-            result.append(p[i] ** 2 / 2 - v(x[i]))
+            result.append(p[i] ** 2 / 2 - b(x[i]))
         return result
 
 
-def lagrangian_1d(x, q):
+def lagrangian_1d(x, q, b=v):
     assert len(x) == len(q)
 
     if isinstance(q, torch.Tensor):
         if q.requires_grad:
             q.detach()
-        return q ** 2 / 2 + v(x).view(-1)
+        return q ** 2 / 2 + (b(x).view(-1) if b else 0)
     else:
         result = []
         for i in range(len(x)):
-            result.append(q[i] ** 2 / 2 + v(x[i]))
+            result.append(q[i] ** 2 / 2 + (b(x[i]).view(-1) if b else 0))
         return result
 
 
@@ -202,6 +202,18 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     fx = f(pts)
     plt.figure()
     plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
+    plt.legend()
+    plt.show()
+
+
+def plot_RFM_vs_true(f, true_f, offset, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
+    pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape(
+        [-1, 1])
+    fx = f(pts) - offset + 1.13
+    true_fx = true_f(pts)
+    plt.figure()
+    plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
+    plt.plot(pts, true_fx, label="true"+label, color='orange', linestyle='-')
     plt.legend()
     plt.show()
 
