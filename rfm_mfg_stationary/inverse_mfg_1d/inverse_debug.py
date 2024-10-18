@@ -96,14 +96,12 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
     F_b = RF_valuation(models_u, collocs_b_cat).detach().numpy()
     Fb_avg = np.mean(F_b, axis=0)
     H_b = RF_valuation(models_b, collocs_b_cat).detach().numpy()
-    H_b = np.concatenate([H_b, -np.ones((H_b.shape[0], 1))], axis=1)
     U_l = func_valuation(u_true, x_l).detach().numpy()  # U_l
 
     # historical solutions and policies
     historical_m = [RFM_function_factory(models_m, w_fp)]
     historical_u = [RFM_function_factory(models_u, w_hjb)]
     historical_b = [None]
-    historical_lam = [None]
     historical_q = [None]
     historical_q[0], dq = second_diff_RFM_function(historical_u[0])
 
@@ -115,26 +113,20 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
             plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
 
         # Step (2): Solve Inverse HJB equation for b and lambda
-        # See if the u integrates to 0.
-        recovered_b, recovered_lambda = inverse_HJB(models_u, models_b, collocs_b_cat, historical_m[k],
+        recovered_B = inverse_HJB(models_u, models_b, collocs_b_cat, historical_m[k],
                                                     historical_q[k - 1], u_true, F_l, Fb_avg, H_b, U_l, Mb, Ju, Jb, Qb,
                                                     eps, regularization=True)
-        historical_b.append(recovered_b)
-        historical_lam.append(recovered_lambda)
+        historical_b.append(recovered_B)
 
         # Step (3): Obtain u from recovered b, and update policy from the newly obtained u.
-        # TODO: Pass in u into eq (9) and (10), check u has conserved mass
         curr_u, curr_lam = solve_HJB_forward(models_u, collocs_u, historical_m[k], historical_q[k - 1], Mu, Ju, Qu,
-                                             lagrangian_1d, b=recovered_b, eps=eps)
+                                             lagrangian_1d, b=recovered_B, eps=eps)
         historical_u.append(curr_u)
 
         print("Lambda gap is: " + str(curr_lam[0] - recovered_lambda.item()))
 
         new_q, dq = second_diff_RFM_function(historical_u[k])
         historical_q.append(new_q)
-
-
-    # TODO: Check recovered b gives the same solution to the MFG, re-create the original data
 
     return historical_b[-1], historical_lam[-1]
 
