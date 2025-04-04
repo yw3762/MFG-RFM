@@ -209,11 +209,17 @@ def plot_RFM_1d(f, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
 def plot_RFM_vs_true(f, true_f, offset, label, n_pts=1000, interval_length=INTERVAL_LENGTH):
     pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape(
         [-1, 1])
-    fx = f(pts) - offset + 1.13
-    true_fx = true_f(pts)
+    fx = f(pts) - offset
+    true_fx = true_f(pts).view(-1)
+
+    gap = (true_fx - fx).mean()
+    print("gap is", gap.item())
+    fx += gap
+    residual = (true_fx - fx).abs().sum()
+    print("residual is", residual.item())
     plt.figure()
     plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
-    plt.plot(pts, true_fx, label="true"+label, color='orange', linestyle='-')
+    plt.plot(pts, true_fx, label="true "+label, color='orange', linestyle='-')
     plt.legend()
     plt.show()
 

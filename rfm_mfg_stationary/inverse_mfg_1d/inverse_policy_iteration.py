@@ -57,7 +57,7 @@ def inverse_HJB(models_u, models_b, collocs_b_cat, m_func, q_func, observed_u, F
     return recovered_b, recovered_lambda
 
 
-def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iters=20, eps=0.3, tau=1e-6, plot=False):
+def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iters=20, eps=0.3, tau=1e-6):
     """
     Solves the inverse problem with final-time derivative information (i.e. case ii in Ren et al.)
 
@@ -87,7 +87,15 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
     models_b, collocs_b = init_rfm(Mb, Jb, Qb)
     w_hjb = torch.zeros((Mu, Ju))
     w_fp = torch.zeros((Mm, Jm))
+
+    # (1, Il)-tensor of points on which we evaluate the given function
     x_l = torch.linspace(0, 1, steps=Il + 1)[:-1].view(-1, 1)
+
+    # Numerically integrate u_ture over [0, 1] to see if it's correctly normalized to 0.
+    # FIXME: True solution of u should have 0 mass (i.e. integrate to 0, but it's -0.007)
+    mass_u_true = np.average(func_valuation(u_true, x_l).detach().numpy())
+    print("Numerical integral of u_true over [0,1] is: " + str(mass_u_true))
+
 
     # Pre-compute F_l, H_b, W_l, U_l matrices (as tensors)
     # collocs_u_cat = concatenate_collocs(collocs_u)
@@ -111,14 +119,12 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
     for k in range(1, n_iters + 1):
         # Step (1): Solve FP equation.
         historical_m.append(solve_FP_forward(models_m, collocs_m, historical_q[k - 1], dq, Mm, Jm, Qm))
-        if plot:
-            plot_RFM_1d(historical_m[k], "m^(" + str(k) + ")")
 
         # Step (2): Solve Inverse HJB equation for b and lambda
         # See if the u integrates to 0.
         recovered_b, recovered_lambda = inverse_HJB(models_u, models_b, collocs_b_cat, historical_m[k],
                                                     historical_q[k - 1], u_true, F_l, Fb_avg, H_b, U_l, Mb, Ju, Jb, Qb,
-                                                    eps, regularization=True)
+                                                    eps, regularization=False)
         historical_b.append(recovered_b)
         historical_lam.append(recovered_lambda)
 
@@ -127,6 +133,10 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
         curr_u, curr_lam = solve_HJB_forward(models_u, collocs_u, historical_m[k], historical_q[k - 1], Mu, Ju, Qu,
                                              lagrangian_1d, b=recovered_b, eps=eps)
         historical_u.append(curr_u)
+        mass_u_true = np.average(func_valuation(curr_u, x_l).detach().numpy())
+        # curr_lam[0] += mass
+        print("Integral of u over [0,1] is: " + str(mass_u_true))
+
 
         print("Lambda gap is: " + str(curr_lam[0] - recovered_lambda.item()))
 
@@ -150,6 +160,7 @@ def test():
         return 0.1 * (sin(2 * pi * x - sin(4 * pi * x)) + exp(cos(2 * pi * x)))
 
     m_true, u_true, _ = policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=true_b, n_iters=20)
+
     recovered_b, recovered_lam = inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb)
 
     # Plot the recovered b against true b

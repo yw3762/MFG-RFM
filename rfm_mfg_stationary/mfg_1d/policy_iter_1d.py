@@ -237,4 +237,7 @@ def policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=None, n_iters=20, eps=0.3, tau=1e
         plot_by_iter(fd_residual_u, 'FD Residual error of HJB', 'Residual error')
         plot_by_iter(fd_system_residual, 'FD Residual error of System', 'Residual error')
 
+    print("Final residual of Fokker-Planck is", fd_residual_m[-1])
+    print("Final residual of HJB is", fd_residual_u[-1])
+
     return historical_m[-1], historical_u[-1], fd_system_residual

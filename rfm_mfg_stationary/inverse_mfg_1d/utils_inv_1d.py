@@ -29,7 +29,39 @@ def build_RFM_matrix(models_u, q_vals, collocs_b_cat, Mb, Qb, Ju, eps):
     return M
 
 
+def build_RFM_matrix_normalize(models_u, q_vals, collocs_b_cat, Mb, Qb, Ju, eps):
+    Mu = len(models_u)
+    M = np.zeros((Mb * Qb + 1, Mu * Ju))
+
+    for m in range(Mu):
+        out = models_u[m](collocs_b_cat)
+        grads_2 = []
+        q_du = []
+
+        for i in range(Ju):
+            g_1 = torch.autograd.grad(outputs=out[:, i], inputs=collocs_b_cat, grad_outputs=torch.ones_like(out[:, i]),
+                                      create_graph=True, retain_graph=True)[0]
+            g_2 = torch.autograd.grad(outputs=g_1[:, 0], inputs=collocs_b_cat, grad_outputs=torch.ones_like(out[:, i]),
+                                          retain_graph=True)[0]
+            grads_2.append(g_2.squeeze().detach().numpy())
+            q_du.append((g_1.squeeze() * q_vals).detach().numpy())
+
+        grads_2 = np.array(grads_2).T
+        q_du = np.array(q_du).T
+
+        Lu = - eps * grads_2 + q_du
+        M[:-1, m * Ju: (m + 1) * Ju] = Lu
+        M[-1, m * Ju: (m + 1) * Ju] += out.mean(dim=0).detach().numpy()
+
+    return M
+
+
 def concatenate_collocs(collocs_l):
+    """
+    Concatenate collocation points in each partition without repeated partition boundary points.
+    :param collocs_l:
+    :return:
+    """
     return torch.cat([t[:-1] for t in collocs_l])
 
 
