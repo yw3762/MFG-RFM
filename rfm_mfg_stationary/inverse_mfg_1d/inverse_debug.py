@@ -4,7 +4,7 @@ from scipy.linalg import pinv, inv
 from torch import sin, cos, pi, exp
 
 from rfm_mfg_stationary.mfg_1d.policy_iter_1d import solve_FP_forward, policy_iteration
-from rfm_mfg_stationary.mfg_1d.utils.utils_1d import init_rfm, RFM_function_factory, second_diff_RFM_function, \
+from rfm_mfg_stationary.inverse_mfg_1d.utils.utils_1d import init_rfm, RFM_function_factory, second_diff_RFM_function, \
     plot_RFM_1d, lagrangian_1d, plot_RFM_vs_true, set_seed
 from rfm_mfg_stationary.inverse_mfg_1d.utils_inv_1d import RF_valuation, concatenate_collocs, \
     func_valuation, build_RFM_matrix, build_RFM_matrix_normalize
@@ -144,7 +144,8 @@ def test():
     def true_b(x):
         return 0.1 * (sin(2 * pi * x - sin(4 * pi * x)) + exp(cos(2 * pi * x)))
 
-    m_true, u_true, _ = policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=true_b, n_iters=20)
+    m_true, u_true, lam_true, _ = policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=true_b, n_iters=20)
+    print("lam_true:", lam_true)
     recovered_b, recovered_lam = inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb)
 
     # Plot the recovered b against true b

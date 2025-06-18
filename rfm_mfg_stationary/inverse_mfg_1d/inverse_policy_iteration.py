@@ -133,24 +133,21 @@ def inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb, n_iter
         curr_u, curr_lam = solve_HJB_forward(models_u, collocs_u, historical_m[k], historical_q[k - 1], Mu, Ju, Qu,
                                              lagrangian_1d, b=recovered_b, eps=eps)
         historical_u.append(curr_u)
-        mass_u_true = np.average(func_valuation(curr_u, x_l).detach().numpy())
-        # curr_lam[0] += mass
-        print("Integral of u over [0,1] is: " + str(mass_u_true))
+        mass_u_recovered = np.average(func_valuation(curr_u, x_l).detach().numpy())
+        print("Integral of u over [0,1] is: " + str(mass_u_recovered))
 
-
-        print("Lambda gap is: " + str(curr_lam[0] - recovered_lambda.item()))
+        print("Lambda gap is: " + str(curr_lam - recovered_lambda.item()))
 
         new_q, dq = second_diff_RFM_function(historical_u[k])
         historical_q.append(new_q)
 
 
     # TODO: Check recovered b gives the same solution to the MFG, re-create the original data
-
     return historical_b[-1], historical_lam[-1]
 
 
 def test():
-    set_seed(100)
+    # set_seed(100)
     Mu, Mm, Mb = 4, 4, 5
     Ju, Jm, Jb = 20, 20, 30
     Il = 400
@@ -159,8 +156,8 @@ def test():
     def true_b(x):
         return 0.1 * (sin(2 * pi * x - sin(4 * pi * x)) + exp(cos(2 * pi * x)))
 
-    m_true, u_true, _ = policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=true_b, n_iters=20)
-
+    m_true, u_true, lam_true, _ = policy_iteration(Mu, Ju, Mm, Jm, Qu, Qm, b=true_b, n_iters=30, plot=True)
+    print("lam_true:", lam_true)
     recovered_b, recovered_lam = inverse_PI_stationary(u_true, Mu, Mm, Mb, Ju, Jm, Jb, Il, Qu, Qm, Qb)
 
     # Plot the recovered b against true b
