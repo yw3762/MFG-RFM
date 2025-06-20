@@ -693,6 +693,15 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, d
         plt.tight_layout()
         plt.show()
 
+    def normalize_policy(q_L, q_R, R):
+        q_L_new = q_L
+        q_R_new = q_R
+        DU_norm = np.sum(np.abs(q_L_new)) + np.sum(np.abs(q_R_new))
+        if DU_norm > R:
+            q_L_new = q_L_new * R / DU_norm
+            q_R_new = q_R_new * R / DU_norm
+        return q_L_new, q_R_new
+
     historical_m, historical_u, historical_lam = [None], [None], [None]
     historical_q_L = [np.zeros(n_points)]
     historical_q_R = [np.zeros(n_points)]
@@ -714,37 +723,42 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, d
         A_Q = A_Q_T.T
 
         # Check the A_Q_T (and hence A_Q) is correctly defined
-        for i in range(n_points):
-            diff_mid = A_Q_T[i, i] - 2 * eps / h**2 - Q_plus[i] / h + Q_minus[i] / h
-            if abs(diff_mid) > 1e-8:
-                print("middle entry differs", diff_mid)
-            diff_left = A_Q_T[i, (n_points + i-1) % n_points] + eps / h**2 + Q_plus[i] / h
-            if abs(diff_left) > 1e-8:
-                print("middle entry differs", diff_left)
-            diff_right = A_Q_T[i, (n_points + i+1) % n_points] + eps / h**2 - Q_minus[i] / h
-            if abs(diff_right) > 1e-8:
-                print("middle entry differs", diff_right)
-        w_fp = np.ones(n_points) * h
-        m_vals_no_iter = constrained_lsq_fp(A_Q, np.zeros(n_points), w_fp, 1)
-        print("total mass of M without iteration", np.average(np.abs(m_vals_no_iter)))
+        # for i in range(n_points):
+        #     diff_mid = A_Q_T[i, i] - 2 * eps / h**2 - Q_plus[i] / h + Q_minus[i] / h
+        #     if abs(diff_mid) > 1e-8:
+        #         print("middle entry differs", diff_mid)
+        #     diff_left = A_Q_T[i, (n_points + i-1) % n_points] + eps / h**2 + Q_plus[i] / h
+        #     if abs(diff_left) > 1e-8:
+        #         print("middle entry differs", diff_left)
+        #     diff_right = A_Q_T[i, (n_points + i+1) % n_points] + eps / h**2 - Q_minus[i] / h
+        #     if abs(diff_right) > 1e-8:
+        #         print("middle entry differs", diff_right)
+
+        # w_fp = np.ones(n_points) * h
+        # m_vals_no_iter = constrained_lsq_fp(A_Q, np.zeros(n_points), w_fp, 1)
+        # print("total mass of M without iteration", np.average(np.abs(m_vals_no_iter)))
+
+        # (Computing residual for FP without using iterative method)
+        # residual_m = -eps * L @ m_vals_no_iter - D_L @ (m_vals_no_iter * Q_plus) - D_R @ (m_vals_no_iter * Q_minus)
+        # print("residual of M (no iteration)", np.sum(np.abs(residual_m)) * h)
 
         # Finding m_vals iteratively until convergence
         mu = 1
         W = np.ones_like(x)  # initial choice of W
         M = pinv(mu * np.eye(n_points) + A_Q)
         W_next = mu * M @ W
-        while np.linalg.norm(W - W_next) > 1e-8:
+        while np.linalg.norm(W - W_next) > 1e-6:
             W = W_next
             W_next = mu * M @ W
         m_vals = W_next
-        print("total mass of M with iterative computation", np.average(np.abs(m_vals)))
 
         historical_m.append(m_vals)
 
         # (Computing residual for FP)
-        residual_m = -eps * L @ m_vals - D_L @ (m_vals * historical_q_L[-1]) - D_R @ (m_vals * historical_q_R[-1])
+        residual_m = -eps * L @ m_vals - D_L @ (m_vals * Q_plus) - D_R @ (m_vals * Q_minus)
         m_residuals.append(np.sum(np.abs(residual_m)) * h)
-        print("residual of m", m_residuals[-1])
+        print("residual of M", m_residuals[-1])
+        # print("total mass of M with iterative computation", np.average(np.abs(m_vals)))
 
         # Step 2: Solve HJB
         rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + v_cacace(x) + m_vals **2
@@ -756,7 +770,7 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, d
 
         P = A_Q_T @ A_Q_T_pinv
         diff = (rhs_hjb - P @ rhs_hjb)
-        lam = diff[0] # FIXME: Using first entry could be problematic because it may not a multiple of \mathds{1}.
+        lam_first = diff[0] # FIXME: Using first entry could be problematic because it may not a multiple of \mathds{1}.
         lam_avg = np.average(diff)
         # print("A_Q_T 1 = ", np.abs(A_Q_T @ np.ones(n_points)))
         lam = lam_ker
@@ -768,28 +782,29 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, d
 
         # (Computing residual for HJB)
         V = v_cacace(x)
-        residual_u = (-eps * L @ u_vals + Q_plus * (D_L @ u_vals)  + Q_minus * (D_R @ u_vals) + lam * np.ones(n_points)
+        DLU = D_L @ u_vals
+        DRU = D_R @ u_vals
+        residual_u = (-eps * L @ u_vals + Q_plus * (DLU)  + Q_minus * (DRU) + lam * np.ones(n_points)
                       - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - m_vals**2)
         u_residuals.append(np.sum(np.abs(residual_u)))
         print("residual for U is", u_residuals[-1])
 
         # Step 3: Update the policy
-        q_L_new = D_L @ u_vals
-        q_R_new = D_R @ u_vals
-        DU_norm = np.sum(np.abs(q_L_new)) + np.sum(np.abs(q_R_new))
-        if DU_norm > R:
-            q_L_new = q_L_new * R / DU_norm
-            q_R_new = q_R_new * R / DU_norm
-        historical_q_L.append(q_L_new)
-        historical_q_R.append(q_R_new)
+        Q_L_new, Q_R_new = normalize_policy(DLU, DRU, R)
+        historical_q_L.append(Q_L_new)
+        historical_q_R.append(Q_R_new)
 
         # Testing system residual
-        # H_Du = np.sum((D_L @ u_vals) ** 2) + np.sum((D_R @ u_vals) ** 2)
-        # residual_hjb_sys = -eps * L @ u_vals + H_Du + ones * lam - V - m_vals**2 # F(x) = x**2
-        # residual_fp_sys = -eps * L @ m_vals - D @ (m_vals * historical_q[-1])
-        # residual_sys = np.sum(np.abs(residual_hjb_sys)) + np.sum(np.abs(residual_fp_sys))
-        # system_residuals.append(residual_sys)
-        system_residuals.append(0)
+        DLU_plus = np.maximum(D_L @ u_vals, 0)
+        DRU_minus = np.minimum(D_R @ u_vals, 0)
+        residual_hjb_sys = (-eps * L @ u_vals + (np.sum(DLU_plus ** 2) + np.sum(DRU_minus ** 2)) / 2
+                            + ones * lam - V - m_vals**2) # F(x) = x**2
+        MDLU = m_vals * DLU_plus
+        MDRU = m_vals * DRU_minus
+        div_MDU = D_R @ MDLU + D_L @ MDRU
+        residual_fp_sys = -eps * L @ m_vals - div_MDU
+        residual_sys = (np.sum(np.abs(residual_hjb_sys)) + np.sum(np.abs(residual_fp_sys))) * h
+        system_residuals.append(residual_sys)
 
         # Plot intermediate solutions
         if plot:
