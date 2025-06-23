@@ -27,6 +27,29 @@ def v_cacace(x):
         return np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x)
 
 
+def v_yang_1(x):
+    """
+    The given bounded potential function as in Yang et al's example in section 5.2,
+    F(m) = m^4
+    """
+    if isinstance(x, torch.Tensor):
+        return 2 * (sin(pi * x) + cos(5. * pi * x))
+    else:
+        return 2 * (np.sin(np.pi * x) + np.cos(5. * np.pi * x))
+
+
+def v_yang_2(x):
+    """
+    The given bounded potential function as in Yang et al's example in section 5.3.1,
+    F(m) = m^3
+    """
+    if isinstance(x, torch.Tensor):
+        return .5 * (sin(2. * pi * x) + cos(4. * pi * x))
+    else:
+        return .5 * (np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x))
+
+
+
 def b_ren(x):
     if isinstance(x, torch.Tensor):
         return 0.1*sin(2. * pi * x - sin(4. * pi * x)) + exp(cos(2. * pi * x))
@@ -202,7 +225,18 @@ def fd_operators(h, n_points):
     return L, D_L, D_R
 
 
-def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
+def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, final_plot=True):
+    """
+
+    :param test_case: Should be either "cacace" or "yang1" or "yang2"
+    :param n_points: Number of grid points along each dimension in the domain
+    :param n_iters: Number of iterations to perform
+    :param eps: The viscosity constant in the MFG
+    :param R: Radius to trigger a policy normalization
+    :param plot: Whether to plot the intermediate result
+    :param final_plot: Whether to save the final result
+    :return:
+    """
     def plot_fd_system(x, m_vals, u_vals):
         x_periodic = np.append(x, 1.0)
         m_periodic = np.append(m_vals, m_vals[0])
@@ -283,7 +317,7 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
                 print("middle entry differs", diff_right)
         return A_Q_T.T
 
-    def solve_m(A_Q, mu=1000, threshold=1e-6, reg=1e-3):
+    def solve_m(A_Q, mu=1000, threshold=1e-6, reg=0):
         """
         Solve the problem [µ I + A(Q)] M = µ M for M by iteratively solving
             [µ I + A(Q)] W^{s+1} = µ W^s
@@ -301,8 +335,8 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
             W_next = mu * N @ W
         return W_next
 
-    def solve_u(A_Q, Q_plus, Q_minus, method="direct_inverse"):
-        rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + v_cacace(x) + m_vals ** 2
+    def solve_u(A_Q, Q_plus, Q_minus, V, F, method="direct_inverse"):
+        rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + V + F(m_vals)
         if method == "direct_inverse":
             # Try using the direct inverse method
             M = np.block([
@@ -338,6 +372,18 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
     x = np.linspace(0, 1, n_points, endpoint=False)
     h = x[1] - x[0]
 
+    if test_case == "cacace":
+        V = v_cacace(x)
+        F = lambda dat: dat ** 2
+    elif test_case == "yang1":
+        V = v_yang_1(x)
+        F = lambda dat: dat ** 4
+    elif test_case == "yang2":
+        V = v_yang_2(x)
+        F = lambda dat: dat ** 3
+    else:
+        raise ValueError("test_case must be one of 'cacace', 'yang1', or 'yang2'")
+
     # Building the discrete Laplacian for periodic domain
     ones = np.ones(n_points)
     L, D_L, D_R = fd_operators(h, n_points)
@@ -354,22 +400,20 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
         # (Computing residual for FP)
         residual_m = -eps * L @ m_vals - D_R @ (m_vals * Q_plus) - D_L @ (m_vals * Q_minus)
         m_residuals.append(np.sum(np.abs(residual_m)) * h)
-        print(f"residual of M^{_} is", m_residuals[-1])
-        # print("total mass of M with iterative computation", np.average(np.abs(m_vals)))
+        # print(f"residual of M^{_} is", m_residuals[-1])
 
         # Step 2: Solve HJB
-        u_vals, lam = solve_u(A_Q, Q_plus, Q_minus)
+        u_vals, lam = solve_u(A_Q, Q_plus, Q_minus, V, F)
         historical_u.append(u_vals)
         historical_lam.append(lam)
 
         # (Computing residual for HJB)
-        V = v_cacace(x)
         DLU = D_L @ u_vals
         DRU = D_R @ u_vals
         residual_u = (-eps * L @ u_vals + Q_plus * DLU  + Q_minus * DRU + lam * np.ones(n_points)
-                      - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - m_vals**2)
+                      - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - F(m_vals))
         u_residuals.append(np.sum(np.abs(residual_u)))
-        print(f"residual for U^{_} is", u_residuals[-1])
+        # print(f"residual for U^{_} is", u_residuals[-1])
 
         # Step 3: Update the policy
         Q_L_new, Q_R_new = normalize_policy(DLU, DRU, R)
@@ -381,7 +425,7 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
         DLU_plus = np.maximum(DLU, 0)
         DRU_minus = np.minimum(DRU, 0)
         residual_hjb_sys = (-eps * L @ u_vals + ((DLU_plus ** 2) + (DRU_minus ** 2)) / 2
-                            + ones * lam - V - m_vals**2) # F(x) = x**2
+                            + ones * lam - V - F(m_vals))
 
         # The FP part (correct)
         MDLU_plus = m_vals * np.maximum(DLU, 0)
@@ -397,7 +441,8 @@ def policy_iteration_fd(n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False):
             plot_fd_system(x, m_vals, u_vals)
 
     # Plotting residuals
-    if plot:
+    if final_plot:
+        plot_fd_system(x, historical_m[-1], historical_u[-1])
         plot_fd_residual(m_residuals, u_residuals, system_residuals)
 
     print(system_residuals)
@@ -607,7 +652,15 @@ def test():
     # test_hjb_mms()
     # test_fp_mms()
 
-    m_fd, u_fd, lam_fd = policy_iteration_fd(200, n_iters=20, R=2000, plot=True)
+    m_fd, u_fd, lam_fd = policy_iteration_fd("cacace", 200, n_iters=20, R=2000, plot=False, final_plot=True)
+
+    # Check against Fig 2 in Yang.
+    m_fd, u_fd, lam_fd = policy_iteration_fd("yang1", 100, n_iters=30, eps=0.5, R=2000, plot=False, final_plot=True)
+    print(lam_fd)
+
+    # Check against Fig 3 in Yang.
+    m_fd, u_fd, lam_fd = policy_iteration_fd("yang2", 100, n_iters=100, R=2000, plot=False, final_plot=True)
+    print(lam_fd)
 
 
 if __name__ == '__main__':
