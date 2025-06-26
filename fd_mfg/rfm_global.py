@@ -360,7 +360,7 @@ def weights_init(m):
 
 def rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, rescale=False, test_case="cacace", n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, final_plot=True):
     """
-    Compare RFM and FD within each iteration.
+    Compare RFM and FD solver for each iteration.
     :param test_case: Should be either "cacace" or "yang1" or "yang2"
     :param n_points: Number of grid points along each dimension in the domain
     :param n_iters: Number of iterations to perform
@@ -521,6 +521,32 @@ def rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, rescale=False, test_case="cacace", n_point
         V = V_func(x)
         return V_func, F_func, V
 
+    def rescale_rfm(L_rfm, f_rfm, c=100):
+        rescale = np.diag(np.sqrt(c / (np.abs(L_rfm)).max(axis=1)))
+        return rescale @ L_rfm, rescale @ f_rfm
+
+    def solve_m_rfm(fp_rfm, div_MQ_rfm, eps, rescale=False):
+        LM_rfm = (-eps * fp_rfm.features_grad2 - div_MQ_rfm.T).detach().numpy()
+        M_rhs_rfm = np.zeros([Mm * Qm])
+        if rescale:
+            LM_rfm, M_rhs_rfm = rescale_rfm(LM_rfm, M_rhs_rfm)
+        return constrained_lsq_pinv(LM_rfm, M_rhs_rfm, M_normalization, Mm * Qm)
+
+    def solve_u_rfm(hjb_rfm, du_rfm, V_func, F_func, eps, rescale=False):
+        q_val_on_u_rfm = du_rfm(hjb_rfm.collocs).detach()
+        Q_DU_rfm = hjb_rfm.features_grad.T.detach() * q_val_on_u_rfm
+        LU_rfm = (-eps * hjb_rfm.features_grad2 + Q_DU_rfm.T).detach().numpy()
+
+        # TODO: Make this more efficient
+        U_rhs_rfm = (
+                    V_func(hjb_rfm.collocs) + F_func(m_rfm(hjb_rfm.collocs)) + q_val_on_u_rfm ** 2 / 2).detach().numpy()
+        if rescale:
+            LU_rfm, U_rhs_rfm = rescale_rfm(LU_rfm, U_rhs_rfm)
+        LU_rfm = np.hstack((LU_rfm, np.ones((LU_rfm.shape[0], 1))))
+
+        sol = constrained_lsq_pinv(LU_rfm, U_rhs_rfm, U_normalization_aug, 0)
+        return sol[:-1], sol[-1]
+
     # Record FD solutions and initialize policy
     historical_m_fd, historical_u_fd, historical_lam_fd = [None], [None], [None]
     historical_q_L = [np.zeros(n_points)]
@@ -562,53 +588,14 @@ def rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, rescale=False, test_case="cacace", n_point
         # print(f"residual of M^{_} is", m_residuals_fd[-1])
 
         # Step 1': Solve FP using RFM method
-        q_val_rfm = du_rfm(fp_rfm.collocs).detach()
-        dq_val_rfm = d2u_rfm(fp_rfm.collocs).detach()
-        div_MQ_rfm = fp_rfm.features_grad.T * q_val_rfm + fp_rfm.features_vals.T * dq_val_rfm
-        LM_rfm = (-eps * fp_rfm.features_grad2 - div_MQ_rfm.T).detach().numpy()
-        rescale_fp = np.eye(Mm * Qm)
-        if rescale: # FIXME: It seems rescaling causes more error
-            c = 100
-            rescale_fp = np.diag(np.sqrt(c / (np.abs(LM_rfm)).max(axis=1)))
-
-        w_fp_new = constrained_lsq_pinv(rescale_fp @ LM_rfm, np.zeros([Mm * Qm]), M_normalization, Mm * Qm)
+        div_MQ_rfm = fp_rfm.features_grad.T * du_rfm(fp_rfm.collocs).detach() + fp_rfm.features_vals.T * d2u_rfm(fp_rfm.collocs).detach()
+        w_fp_new = solve_m_rfm(fp_rfm, div_MQ_rfm, eps)
         m_rfm, dm_rfm, d2m_rfm = fp_rfm.get_feature_diffs(w_fp_new)
-        # fp_rfm.plot(w_fp_new, y_labal="M", title=f"RFM solution of M^{k}")
-
-        # -------------------------------------------
 
         # Step 2: Solve HJB using FD method
         u_vals_fd, lam_fd = solve_u_fd(A_Q, Q_plus, Q_minus, V, F_func)
         historical_u_fd.append(u_vals_fd)
         historical_lam_fd.append(lam_fd)
-
-        # Step 2': Solve HJB using RFM method
-        Q_DU_rfm = hjb_rfm.features_grad.T.detach() * q_val_rfm
-        LU_rfm = (-eps * hjb_rfm.features_grad2 + Q_DU_rfm.T).detach().numpy()
-
-        # TODO: Make this more efficient
-        # The f_hjb_rfm should be correct
-        Q_square_rfm = q_val_rfm ** 2 / 2
-        f_hjb_rfm = (V_func(hjb_rfm.collocs) + F_func(m_rfm(hjb_rfm.collocs)) + Q_square_rfm).detach().numpy()
-        rescale_hjb = np.eye(Mu * Qu)
-        if rescale: # FIXME: It seems rescaling causes more error
-            c = 100
-            rescale_hjb = np.diag(np.sqrt(c / (np.abs(LU_rfm)).max(axis=1)))
-        LU_rfm = rescale_hjb @ LU_rfm
-        LU_rfm = np.hstack((LU_rfm, np.ones((LU_rfm.shape[0], 1))))
-        f_hjb_rfm = rescale_hjb @ f_hjb_rfm
-
-        w_hjb_new = constrained_lsq_pinv(LU_rfm, rescale_hjb @ f_hjb_rfm, U_normalization_aug, 0)
-        lam_rfm = w_hjb_new[-1]
-        w_hjb_new = w_hjb_new[:-1]
-        # hjb_rfm.plot(w_hjb_new, y_labal="U", title=f"RFM solution of U^{k}")
-        u_rfm, du_rfm, d2u_rfm = hjb_rfm.get_feature_diffs(w_hjb_new)
-
-
-        # -------------------------------------------
-        # Plot intermediate solutions
-        if plot:
-            plot_fd_and_rfm(x, m_vals_fd, u_vals_fd, m_rfm, u_rfm)
 
         # (Computing residual for HJB)
         DLU, DRU = D_L @ u_vals_fd, D_R @ u_vals_fd
@@ -616,6 +603,14 @@ def rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, rescale=False, test_case="cacace", n_point
                       - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - F_func(m_vals_fd))
         u_residuals_fd.append(np.sum(np.abs(residual_u)))
         # print(f"residual for U^{_} is", u_residuals_fd[-1])
+
+        # Step 2': Solve HJB using RFM method
+        w_hjb_new, lam_rfm_new = solve_u_rfm(hjb_rfm, du_rfm, V_func, F_func, eps)
+        u_rfm, du_rfm, d2u_rfm = hjb_rfm.get_feature_diffs(w_hjb_new)
+
+        # Plot intermediate solutions for FD and RFM solvers
+        if plot:
+            plot_fd_and_rfm(x, m_vals_fd, u_vals_fd, m_rfm, u_rfm)
 
         # Step 3: Update the FD policy
         Q_L_new, Q_R_new = normalize_policy(DLU, DRU, R)
