@@ -1,18 +1,15 @@
 import scipy.linalg
 import torch
-import pandas as pd
-import scipy.sparse.linalg as spla
 from torch import sin, cos, pi, exp
 import torch.nn as nn
+from functorch import vmap
+from torch.func import vmap, jacrev, jacfwd
 import numpy as np
 import sympy as sym
-import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 import random
 import matplotlib.pyplot as plt
-from typing import Callable, List, Tuple
-from scipy.linalg import pinv, solve, lstsq
-
+from typing import Callable, List, Tuple, Optional
+from scipy.linalg import pinv, solve
 
 INTERVAL_LENGTH = 1.0  # we consider the domain to be the unit torus.
 
@@ -49,91 +46,11 @@ def v_yang_2(x):
         return .5 * (np.sin(2. * np.pi * x) + np.cos(4. * np.pi * x))
 
 
-
 def b_ren(x):
     if isinstance(x, torch.Tensor):
         return 0.1*sin(2. * pi * x - sin(4. * pi * x)) + exp(cos(2. * pi * x))
     else:
         return 0.1*np.sin(2. * np.pi * x - np.sin(4. * np.pi * x)) + np.exp(np.cos(2. * pi * x))
-
-
-def hamiltonian_1d(x, p, setting="Cacace"):
-    """
-    Return the Hamiltonian 1/2 * |Du| ** 2 - V(x) for HJB on (x, p)
-
-    Note in mfg_1d_old, |Du|**2 = (du/dx)**2
-    :param x: spatial variable, each element in this variable is a list of collocation points for a partition
-    :param p: velocity variable, same format as x, values are derivative Du at each point in x
-    :return: value of Hamiltonian on (x, p), same shape as x
-    """
-    assert len(x) == len(p)
-
-    if setting == "Cacace":
-        v = v_cacace
-    elif setting == "Ren":
-        v = None
-    elif setting == "Yang":
-        v = None # TODO: implement
-    else:
-        raise ValueError
-
-    if isinstance(p, torch.Tensor):
-        if p.requires_grad:
-            p.detach()
-        return p ** 2 / 2 - (v(x).view(-1) if v else 0)
-    else:
-        result = []
-        for i in range(len(x)):
-            result.append(p[i] ** 2 / 2 - (v(x[i]) if v else 0))
-        return result
-
-
-def lagrangian_1d(x, q, setting="Cacace"):
-    assert len(x) == len(q)
-
-    if setting == "Cacace":
-        v = v_cacace
-    elif setting == "Ren":
-        v = None
-    elif setting == "Yang":
-        v = None  # TODO: implement
-    else:
-        raise ValueError
-
-    # if isinstance(q, torch.Tensor):
-    #     if q.requires_grad:
-    #         q.detach()
-    #     vx = v(x).view(-1) if v else 0
-    #     return q ** 2 / 2 + vx
-    # else:
-    #     result = []
-    #     for i in range(len(x)):
-    #         vx = v(x[i]) if v else 0
-    #         if isinstance(vx, torch.Tensor) or isinstance(vx, np.ndarray):
-    #             bx = vx.view(-1) if v else 0
-    #         result.append(q[i] ** 2 / 2 + vx)
-    #     return np.array(result)
-    if isinstance(q, torch.Tensor):
-        if q.requires_grad:
-            q.detach()
-        return q ** 2 / 2 + (v(x).view(-1) if v else 0)
-    else:
-        result = []
-        for i in range(len(x)):
-            result.append(q[i] ** 2 / 2 + (v(x[i]) if v else 0))
-        return result
-
-
-def plot_RFM_1d(f, label, n_pts=1000, test_values=None, interval_length=INTERVAL_LENGTH):
-    pts = torch.tensor(np.linspace(0, interval_length, n_pts), dtype=torch.float64, requires_grad=False).reshape(
-        [-1, 1])
-    fx = f(pts)
-    plt.figure()
-    plt.plot(pts, fx, label=label, color='darkblue', linestyle='--')
-    if test_values is not None:
-        plt.plot(pts, test_values[:-1], color='red')
-    plt.legend()
-    plt.show()
 
 
 def constrained_lsq(A, b, w, c, regularization=1e-3):
@@ -161,6 +78,7 @@ def constrained_lsq(A, b, w, c, regularization=1e-3):
     # lambda_val = sol[-1]  # the Lagrange multiplier
     return x
 
+
 def constrained_lsq_fp(A, b, w, c, regularization=1e-3):
     """
     Solve the least squares problem Ax = b under linear constraint w^T x = c with KKT. Parameters are np.array.
@@ -186,6 +104,7 @@ def constrained_lsq_fp(A, b, w, c, regularization=1e-3):
     # lambda_val = sol[-1]  # the Lagrange multiplier
     return x
 
+
 def constrained_lsq_pinv(A, b, w, c):
     """
     Solve the least squares problem Ax = b under linear constraint w^T x = c, with pseudoinverse.
@@ -204,7 +123,7 @@ def constrained_lsq_pinv(A, b, w, c):
     correction = (c - w.T @ x0) / denominator
 
     # Final solution
-    x = x0 + P @ w.reshape(-1, 1) * correction
+    x = x0 + P @ w * correction
     return x
 
 
@@ -225,9 +144,223 @@ def fd_operators(h, n_points):
     return L, D_L, D_R
 
 
-def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, final_plot=True):
-    """
+class RFM_rep(nn.Module):
+    def __init__(self, in_features, J_n, x_min, x_max):
+        super(RFM_rep, self).__init__()
+        self.in_features = in_features  # num input features
+        self.hidden_features = J_n  # width of hidden layer
+        self.J_n = J_n  # J_n is the number of local RF functions
+        self.x_min = x_min  # x_{nj} - r_{nj}
+        self.x_max = x_max  # x_{nj} + r_{nj}
+        self.a = 2. / (x_max - x_min)  # this is the 1/r_{nj}
+        self.x_0 = (x_max + x_min) / 2  # center of partition.
+        self.gap = INTERVAL_LENGTH  * (x_max - x_min) / 4.
 
+        # Hidden layer is a simple linear FC layer passed to kernel function Tanh.
+        self.hidden_layer = nn.Sequential(
+            nn.Linear(self.in_features, self.hidden_features, bias=True),
+            nn.Tanh()  # batch apply the above layer choice of kernel function
+        )
+
+    def forward(self, x):
+        """
+        The input x will be pass through the network in the following ways:
+        1. Perform a change of variable x -> tilde{x}, i.e. y in the code
+        2. Pass through the hidden layer (i.e. Linear layer + tanh), i.e. we obtain J_n RF functions \phi_nj(x)
+        3. Glue the solution at x using partition of unity, i.e. we obtain
+        """
+
+        # preprocess the input x so that when the partition [x_min, x_max] overlaps the boundary points 0, or
+        # INTERVAL_LENGTH, we map the points from other ends so that it's covered by the "identified PoU"
+        if self.x_min == 0:
+            x = torch.where(x >= 1 - self.gap, x - 1, x)
+        elif self.x_max == INTERVAL_LENGTH:
+            x = torch.where(x <= self.gap , x + 1, x)
+
+        # y is the change of variable in normalized coordinate \tilde{x}
+        tilde_x = self.a * (x - self.x_0)
+
+        # pass the normalized variable into hidden-layer
+        phi_nj = self.hidden_layer(tilde_x)  # phi_nj[i, j] = \phi_{n,j}(tilde_x[i])
+
+        # location indicator
+        d1 = (tilde_x >= -5 / 4) & (tilde_x < -3 / 4)
+        d2 = (tilde_x >= -3 / 4) & (tilde_x < 3 / 4)
+        d3 = (tilde_x >= 3 / 4) & (tilde_x < 5 / 4)
+
+        # y_i are the PoU w.r.t each location of x
+        sin_term = torch.sin(2 * np.pi * tilde_x)
+        y1 = phi_nj * (1 + sin_term) / 2
+        y2 = phi_nj
+        y3 = phi_nj * (1 - sin_term) / 2
+
+        values = d1 * y1 + d2 * y2 + d3 * y3
+        return values
+
+
+class RFM_global(nn.Module):
+    """
+    The global RFM module for periodic 1D domain [left, right]
+    """
+    def __init__(self, M_n:int, J_n:int, Q:int, partitions:Optional[List[Tuple[float, float]]], in_features=1, left=0., right=1.):
+        super(RFM_global, self).__init__()
+        if partitions is None:
+            edges = torch.linspace(left, right, steps=M_n + 1).tolist()
+            # create uniform partition [(0, 1/M_n), (1/M_n, 2/M_n), ..., ((M_n−1)/M_n,1)]
+            partitions = [(edges[i], edges[i + 1]) for i in range(M_n)]
+        else:
+            assert len(partitions) == M_n and partitions[0][0] == left and partitions[-1][1] == right
+
+        meshes = [
+            torch.linspace(x_min, x_max, steps=Q, dtype=torch.float64)
+            for (x_min, x_max) in partitions
+        ]
+        self.collocs = torch.cat(meshes, dim=0)
+
+        self.local_rfms = nn.ModuleList([
+            RFM_rep(in_features, J_n, x_min, x_max) for (x_min, x_max) in partitions
+        ])
+
+        for rfm in self.local_rfms:
+            rfm.apply(weights_init)  # apply uniform[-1,1] init
+            rfm.double()  # in double precision
+            for p in rfm.parameters():
+                p.requires_grad = False  # freeze parameters
+
+        self.features_vals = self.features(self.collocs)
+        self.features_grad = self.features_diff(self.collocs)
+        self.features_grad2 = self.features_diff2(self.collocs)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outs = [rfm(x) for rfm in self.local_rfms]
+        return torch.cat(outs, dim=1)
+
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute feature evaluations for x.
+        """
+        if x.ndim == 1:
+            x_in = x.unsqueeze(1)
+        else:
+            x_in = x
+        return self.forward(x_in)  # [n, F]
+
+    def features_diff(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute first derivative of features for x.
+        """
+        if x.ndim == 1:
+            x_in = x.unsqueeze(1)
+        else:
+            x_in = x
+        # Flatten to [n]
+        x_flat = x_in.squeeze(-1)
+
+        # Per-sample derivative function
+        def _deriv_fn(x_scalar):
+            # x_scalar: scalar tensor
+            out = self.forward(x_scalar.unsqueeze(0).unsqueeze(-1))  # shape [1, F]
+            return out.squeeze(0)  # shape [F]
+        grad1 = vmap(jacrev(_deriv_fn))(x_flat)
+        return grad1
+
+    def features_diff2(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute second derivative of features for x.
+        """
+        if x.ndim == 1:
+            x_in = x.unsqueeze(1)
+        else:
+            x_in = x
+            # flatten to [n]
+        x_flat = x_in.squeeze(-1)
+
+        # scalar-to-F-vector function
+        def _f(x_scalar):
+            # x_scalar is shape [], we make it [1,1] for forward()
+            out = self.forward(x_scalar.unsqueeze(0).unsqueeze(-1))  # [1, F]
+            return out.squeeze(0)  # [F]
+
+        # Mixed-mode Hessian: first reverse, then forward
+        hess_fn = jacfwd(jacrev(_f))  # each call is O(F)
+        # vectorize over all n points
+        grad2 = vmap(hess_fn)(x_flat)  # [n, F]
+        return grad2
+
+    def make_features_func(self, w: torch.Tensor):
+        w_flat = w.detach().clone().to(torch.float64).view(-1)
+
+        def f(x):
+            y = self.features_vals.matmul(w_flat)
+            return y.view(x.shape)
+
+        return f
+
+    def make_features_diff_func(self, w: torch.Tensor):
+        w_flat = w.detach().clone().to(torch.float64).view(-1)
+
+        def df(x):
+            y1 = self.features_diff(x).matmul(w_flat)
+            return y1.view(x.shape)
+
+        return df
+
+    def make_features_diff2_func(self, w: torch.Tensor):
+        w_flat = w.detach().clone().to(torch.float64).view(-1)
+
+        def d2f(x):
+            y2 = self.features_grad2.matmul(w_flat)
+            return y2.view(x.shape)
+
+        return d2f
+
+    def get_feature_diffs(self, w: np.ndarray) -> Tuple[Callable, Callable, Callable]:
+        """
+        Given weight vector w of shape [M_n*J_n], return callables (f, df, d2f)
+        that accept x ([n] or [n,1]) and return same-shape outputs.
+        """
+        w_flat = torch.from_numpy(w).to(torch.float64).view(-1)
+
+        def f(x):
+            y = self.features(x).matmul(w_flat)
+            return y.view(x.shape)
+
+        def df(x):
+            y1 = self.features_diff(x).matmul(w_flat)
+            return y1.view(x.shape)
+
+        def d2f(x):
+            y2    = self.features_diff2(x).matmul(w_flat)
+            return y2.view(x.shape)
+
+        return f, df, d2f
+
+    def plot(self, w: np.ndarray, n_pts=400, y_labal="values", title="plot"):
+        w_flat = torch.from_numpy(w).to(torch.float64).view(-1)
+        x = torch.linspace(0, 1, n_pts, dtype=torch.float64)
+        vals = ((self.features(x)).matmul(w_flat)).detach().numpy()
+        plt.figure()
+        plt.plot(x.detach().numpy(), vals)
+        plt.xlabel('x')
+        plt.ylabel(y_labal)
+        plt.title(title)
+        plt.show()
+
+
+def weights_init(m):
+    """
+    Initialize weights for the given nn.Module
+    :param m: some nn.Module
+    :return: None
+    """
+    if isinstance(m, (nn.Conv2d, nn.Linear)):
+        nn.init.uniform_(m.weight, a=-1, b=1)
+        nn.init.uniform_(m.bias, a=-1, b=1)
+
+
+def rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, rescale=False, test_case="cacace", n_points=1000, n_iters=20, eps=0.3, R=0.5, plot=False, final_plot=True):
+    """
+    Compare RFM and FD within each iteration.
     :param test_case: Should be either "cacace" or "yang1" or "yang2"
     :param n_points: Number of grid points along each dimension in the domain
     :param n_iters: Number of iterations to perform
@@ -237,14 +370,22 @@ def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, 
     :param final_plot: Whether to save the final result
     :return:
     """
-    def plot_fd_system(x, m_vals, u_vals):
+    torch.set_default_dtype(torch.float64)
+
+    def plot_fd_and_rfm(x, m_vals, u_vals, m_rfm, u_rfm):
         x_periodic = np.append(x, 1.0)
         m_periodic = np.append(m_vals, m_vals[0])
         u_periodic = np.append(u_vals, u_vals[0])
 
+        # Convert x_periodic to a tensor for RFM inputs
+        x_periodic_t = torch.from_numpy(x_periodic).to(torch.float64)
+        m_rfm_val = m_rfm(x_periodic_t).detach().numpy()
+        u_rfm_val = u_rfm(x_periodic_t).detach().numpy()
+
         plt.figure(figsize=(12, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(x_periodic, m_periodic, label='m(x)')
+        plt.plot(x_periodic, m_periodic, label='Reference m(x)', color='black', linestyle='-', linewidth=2)
+        plt.plot(x_periodic, m_rfm_val, label='RFM m(x)', color='tab:blue', linestyle='--', linewidth=2)
         plt.xlabel('x')
         plt.ylabel('m(x)')
         plt.title('Fokker-Planck Solution')
@@ -252,7 +393,8 @@ def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, 
         plt.legend()
 
         plt.subplot(1, 2, 2)
-        plt.plot(x_periodic, u_periodic, label='u(x)', color='orange')
+        plt.plot(x_periodic, u_periodic, label='Reference u(x)', color='black', linestyle='-', linewidth=2)
+        plt.plot(x_periodic, u_rfm_val, label='RFM u(x)', color='tab:red', linestyle='--', linewidth=2)
         plt.xlabel('x')
         plt.ylabel('u(x)')
         plt.title('HJB Solution')
@@ -317,7 +459,7 @@ def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, 
                 print("middle entry differs", diff_right)
         return A_Q_T.T
 
-    def solve_m(A_Q, mu=1000, threshold=1e-6, reg=0):
+    def solve_m_fd(A_Q, mu=1000, threshold=1e-6, reg=0):
         """
         Solve the problem [µ I + A(Q)] M = µ M for M by iteratively solving
             [µ I + A(Q)] W^{s+1} = µ W^s
@@ -335,8 +477,8 @@ def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, 
             W_next = mu * N @ W
         return W_next
 
-    def solve_u(A_Q, Q_plus, Q_minus, V, F, method="direct_inverse"):
-        rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + V + F(m_vals)
+    def solve_u_fd(A_Q, Q_plus, Q_minus, V, F, method="direct_inverse"):
+        rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + V + F(m_vals_fd)
         if method == "direct_inverse":
             # Try using the direct inverse method
             M = np.block([
@@ -364,106 +506,171 @@ def policy_iteration_fd(test_case="cacace", n_points=1000, n_iters=20, eps=0.3, 
         # print("total mass of U", np.average(u_vals))
         return u_vals, lam
 
-    historical_m, historical_u, historical_lam = [None], [None], [None]
+    def get_test_funcs(test_case, x):
+        if test_case == "cacace":
+            V_func = v_cacace
+            F_func = lambda dat: dat ** 2
+        elif test_case == "yang1":
+            V_func = v_yang_1
+            F_func = lambda dat: dat ** 4
+        elif test_case == "yang2":
+            V_func = v_yang_2
+            F_func = lambda dat: dat ** 3
+        else:
+            raise ValueError("test_case must be one of 'cacace', 'yang1', or 'yang2'")
+        V = V_func(x)
+        return V_func, F_func, V
+
+    # Record FD solutions and initialize policy
+    historical_m_fd, historical_u_fd, historical_lam_fd = [None], [None], [None]
     historical_q_L = [np.zeros(n_points)]
     historical_q_R = [np.zeros(n_points)]
-    m_residuals, u_residuals, system_residuals = [], [], []
 
+    # Record residuals
+    m_residuals_fd, u_residuals_fd, system_residuals_fd = [], [], []
     x = np.linspace(0, 1, n_points, endpoint=False)
     h = x[1] - x[0]
-
-    if test_case == "cacace":
-        V = v_cacace(x)
-        F = lambda dat: dat ** 2
-    elif test_case == "yang1":
-        V = v_yang_1(x)
-        F = lambda dat: dat ** 4
-    elif test_case == "yang2":
-        V = v_yang_2(x)
-        F = lambda dat: dat ** 3
-    else:
-        raise ValueError("test_case must be one of 'cacace', 'yang1', or 'yang2'")
+    V_func, F_func, V = get_test_funcs(test_case, x)
 
     # Building the discrete Laplacian for periodic domain
     ones = np.ones(n_points)
     L, D_L, D_R = fd_operators(h, n_points)
 
+    # Setup for RFM method
+    fp_rfm, hjb_rfm = RFM_global(Mm, Jm, Qm, None), RFM_global(Mu, Ju, Qu, None)
+    w_hjb = np.zeros(Mu * Ju)
+    w_fp = np.zeros(Mm * Jm)
+
+    m_rfm, dm_rfm, d2m_rfm = fp_rfm.get_feature_diffs(w_fp)
+    u_rfm, du_rfm, d2u_rfm = hjb_rfm.get_feature_diffs(w_hjb)
+    M_normalization = fp_rfm.features_vals.sum(dim=0).detach().numpy()
+    U_normalization = hjb_rfm.features_vals.sum(dim=0).detach().numpy()
+    U_normalization_aug = np.append(U_normalization, 0)
+
     # Policy Iteration Algorithm
-    for _ in range(n_iters):
+    for k in range(1, n_iters + 1):
+        # Step 1: Solve FP using FD method
         Q_plus = np.maximum(historical_q_L[-1], 0)
         Q_minus = np.minimum(historical_q_R[-1], 0)
-        # Step 1: Solve FP
         A_Q = build_A_Q(Q_plus, Q_minus, L, D_L, D_R, eps, h)
-        m_vals = solve_m(A_Q, mu=1, threshold=1e-8, reg=0)
-        historical_m.append(m_vals)
+        m_vals_fd = solve_m_fd(A_Q, mu=1, threshold=1e-8, reg=0)
+        historical_m_fd.append(m_vals_fd)
 
         # (Computing residual for FP)
-        residual_m = -eps * L @ m_vals - D_R @ (m_vals * Q_plus) - D_L @ (m_vals * Q_minus)
-        m_residuals.append(np.sum(np.abs(residual_m)) * h)
-        # print(f"residual of M^{_} is", m_residuals[-1])
+        residual_m_fd = -eps * L @ m_vals_fd - D_R @ (m_vals_fd * Q_plus) - D_L @ (m_vals_fd * Q_minus)
+        m_residuals_fd.append(np.sum(np.abs(residual_m_fd)) * h)
+        # print(f"residual of M^{_} is", m_residuals_fd[-1])
 
-        # Step 2: Solve HJB
-        u_vals, lam = solve_u(A_Q, Q_plus, Q_minus, V, F)
-        historical_u.append(u_vals)
-        historical_lam.append(lam)
+        # Step 1': Solve FP using RFM method
+        q_val_rfm = du_rfm(fp_rfm.collocs).detach()
+        dq_val_rfm = d2u_rfm(fp_rfm.collocs).detach()
+        div_MQ_rfm = fp_rfm.features_grad.T * q_val_rfm + fp_rfm.features_vals.T * dq_val_rfm
+        LM_rfm = (-eps * fp_rfm.features_grad2 - div_MQ_rfm.T).detach().numpy()
+        rescale_fp = np.eye(Mm * Qm)
+        if rescale: # FIXME: It seems rescaling causes more error
+            c = 100
+            rescale_fp = np.diag(np.sqrt(c / (np.abs(LM_rfm)).max(axis=1)))
+
+        w_fp_new = constrained_lsq_pinv(rescale_fp @ LM_rfm, np.zeros([Mm * Qm]), M_normalization, Mm * Qm)
+        m_rfm, dm_rfm, d2m_rfm = fp_rfm.get_feature_diffs(w_fp_new)
+        # fp_rfm.plot(w_fp_new, y_labal="M", title=f"RFM solution of M^{k}")
+
+        # -------------------------------------------
+
+        # Step 2: Solve HJB using FD method
+        u_vals_fd, lam_fd = solve_u_fd(A_Q, Q_plus, Q_minus, V, F_func)
+        historical_u_fd.append(u_vals_fd)
+        historical_lam_fd.append(lam_fd)
+
+        # Step 2': Solve HJB using RFM method
+        Q_DU_rfm = hjb_rfm.features_grad.T.detach() * q_val_rfm
+        LU_rfm = (-eps * hjb_rfm.features_grad2 + Q_DU_rfm.T).detach().numpy()
+
+        # TODO: Make this more efficient
+        # The f_hjb_rfm should be correct
+        Q_square_rfm = q_val_rfm ** 2 / 2
+        f_hjb_rfm = (V_func(hjb_rfm.collocs) + F_func(m_rfm(hjb_rfm.collocs)) + Q_square_rfm).detach().numpy()
+        rescale_hjb = np.eye(Mu * Qu)
+        if rescale: # FIXME: It seems rescaling causes more error
+            c = 100
+            rescale_hjb = np.diag(np.sqrt(c / (np.abs(LU_rfm)).max(axis=1)))
+        LU_rfm = rescale_hjb @ LU_rfm
+        LU_rfm = np.hstack((LU_rfm, np.ones((LU_rfm.shape[0], 1))))
+        f_hjb_rfm = rescale_hjb @ f_hjb_rfm
+
+        w_hjb_new = constrained_lsq_pinv(LU_rfm, rescale_hjb @ f_hjb_rfm, U_normalization_aug, 0)
+        lam_rfm = w_hjb_new[-1]
+        w_hjb_new = w_hjb_new[:-1]
+        # hjb_rfm.plot(w_hjb_new, y_labal="U", title=f"RFM solution of U^{k}")
+        u_rfm, du_rfm, d2u_rfm = hjb_rfm.get_feature_diffs(w_hjb_new)
+
+
+        # -------------------------------------------
+        # Plot intermediate solutions
+        if plot:
+            plot_fd_and_rfm(x, m_vals_fd, u_vals_fd, m_rfm, u_rfm)
 
         # (Computing residual for HJB)
-        DLU = D_L @ u_vals
-        DRU = D_R @ u_vals
-        residual_u = (-eps * L @ u_vals + Q_plus * DLU  + Q_minus * DRU + lam * np.ones(n_points)
-                      - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - F(m_vals))
-        u_residuals.append(np.sum(np.abs(residual_u)))
-        # print(f"residual for U^{_} is", u_residuals[-1])
+        DLU, DRU = D_L @ u_vals_fd, D_R @ u_vals_fd
+        residual_u = (-eps * L @ u_vals_fd + Q_plus * DLU + Q_minus * DRU + lam_fd * np.ones(n_points)
+                      - (Q_plus ** 2 + Q_minus ** 2) / 2 - V - F_func(m_vals_fd))
+        u_residuals_fd.append(np.sum(np.abs(residual_u)))
+        # print(f"residual for U^{_} is", u_residuals_fd[-1])
 
-        # Step 3: Update the policy
+        # Step 3: Update the FD policy
         Q_L_new, Q_R_new = normalize_policy(DLU, DRU, R)
         historical_q_L.append(Q_L_new)
         historical_q_R.append(Q_R_new)
 
-        # Testing system residual
+        # Computing system residuals
         # The HJB part
         DLU_plus = np.maximum(DLU, 0)
         DRU_minus = np.minimum(DRU, 0)
-        residual_hjb_sys = (-eps * L @ u_vals + ((DLU_plus ** 2) + (DRU_minus ** 2)) / 2
-                            + ones * lam - V - F(m_vals))
+        residual_hjb_sys = (-eps * L @ u_vals_fd + ((DLU_plus ** 2) + (DRU_minus ** 2)) / 2
+                            + ones * lam_fd - V - F_func(m_vals_fd))
 
         # The FP part (correct)
-        MDLU_plus = m_vals * np.maximum(DLU, 0)
-        MDRU_minus = m_vals * np.minimum(DRU, 0)
+        MDLU_plus = m_vals_fd * np.maximum(DLU, 0)
+        MDRU_minus = m_vals_fd * np.minimum(DRU, 0)
         div_MDU_pm = D_R @ MDLU_plus + D_L @ MDRU_minus
-        residual_fp_sys = -eps * L @ m_vals - div_MDU_pm
+        residual_fp_sys = -eps * L @ m_vals_fd - div_MDU_pm
         residual_sys = (np.sum(np.abs(residual_hjb_sys)) + np.sum(np.abs(residual_fp_sys))) * h
-        system_residuals.append(residual_sys)
+        system_residuals_fd.append(residual_sys)
+
+        # TODO: Compute residuals for RFM
 
 
-        # Plot intermediate solutions
-        if plot:
-            plot_fd_system(x, m_vals, u_vals)
+
+
 
     # Plotting residuals
     if final_plot:
-        plot_fd_system(x, historical_m[-1], historical_u[-1])
-        plot_fd_residual(m_residuals, u_residuals, system_residuals)
+        plot_fd_and_rfm(x, historical_m_fd[-1], historical_u_fd[-1], m_rfm, u_rfm)
+        plot_fd_residual(m_residuals_fd, u_residuals_fd, system_residuals_fd)
 
-    print(system_residuals)
+    print(system_residuals_fd)
 
-    return historical_m[-1], historical_u[-1], historical_lam[-1]
+    return historical_m_fd[-1], historical_u_fd[-1], historical_lam_fd[-1]
 
 
-def test(MMS=False):
+def test_forward(MMS=False):
     eps = 0.3
 
-    def test_hjb_mms(n_points=1600):
-        def plot_u_vs_true(x, u_vals, true_u_vals, title="Comparison of u and true u"):
+    def test_hjb_mms(Mu, Ju, Qu, n_points=1600):
+        def plot_u_vs_true(x, u_vals, u_rfm_vals, true_u_vals, title="Comparison of u and true u"):
             h = x[1] - x[0]
             plt.figure(figsize=(10, 5))
-            plt.plot(x, u_vals, label='u_vals (Numerical)', linestyle='--', color='blue')
-            plt.plot(x, true_u_vals, label='true_u_vals (Exact)', linestyle='-', color='red')
+            plt.plot(x, u_vals, label='u_vals (FD)', linestyle='--', color='blue')
+            plt.plot(x, u_rfm_vals, label='u_vals (RFM)', linestyle='-.', color='red')
+            plt.plot(x, true_u_vals, label='true_u_vals (Exact)', linestyle='solid', color='black')
             # Compute L1, L2 residual between numerical and true solutions
             l1_res = np.sum(np.abs(u_vals - true_u_vals)) * h
             l2_res = np.sqrt(np.sum((u_vals - true_u_vals) ** 2) * h)
+            l1_res_rfm = np.sum(np.abs(u_rfm_vals - true_u_vals)) * h
+            l2_res_rfm = np.sqrt(np.sum((u_rfm_vals - true_u_vals) ** 2) * h)
+
             # Annotate L1 and L2 on the graph
-            textstr = f"L1 error = {l1_res:.4e}\nL2 error = {l2_res:.4e}"
+            textstr = f"L1 error = {l1_res:.4e}\nL2 error = {l2_res:.4e}\nL1 error (RFM) = {l1_res_rfm:.4e}\nL2 error (RFM) = {l2_res_rfm:.4e}"
             plt.gca().text(0.05, 0.95, textstr, transform=plt.gca().transAxes,
                            verticalalignment='top',
                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
@@ -516,7 +723,14 @@ def test(MMS=False):
         ones = np.ones(n_points)
         L, D_L, D_R = fd_operators(h, n_points)
 
+        # RFM setup
+        hjb_rfm = RFM_global(Mu, Ju, Qu, None)
+        U_normalization = hjb_rfm.features_vals.sum(dim=0).detach().numpy()
+        U_normalization_aug = np.append(U_normalization, 0)
+        V_func = v_cacace
+
         for i in range(len(u)):
+            # FD method
             fm_vals = (fm[i])(x)
             prev_u_vals = prev_u(x)
             q_L = D_L @ prev_u_vals
@@ -525,7 +739,7 @@ def test(MMS=False):
             Q_minus = np.minimum(q_R, 0)
             A_Q_T = - eps * L + np.diag(Q_plus) @ D_L + np.diag(Q_minus) @ D_R
 
-            rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + v_cacace(x) + fm_vals
+            rhs_hjb = (Q_plus ** 2 + Q_minus ** 2) / 2 + V_func(x) + fm_vals
 
             M = np.block([
                 [A_Q_T, ones.reshape((-1, 1))],
@@ -536,11 +750,38 @@ def test(MMS=False):
             lam = U_lam[-1]
             print("recovered lambda (should be 1) is:", lam)
 
+
+            # RFM method
+            rfm_collocs = hjb_rfm.collocs.detach().numpy()
+            Q_rfm = q(rfm_collocs)
+
+            # Testing fix 2, replacing DU_rfm with Q_rfm
+            Q_DU_rfm = hjb_rfm.features_grad.T.detach().numpy() * Q_rfm
+            LU_rfm = (-eps * hjb_rfm.features_grad2.detach().numpy() + Q_DU_rfm.T)
+
+            Q_square_rfm = Q_rfm ** 2 / 2
+            fm_rfm_vals = (fm[i])(rfm_collocs)
+
+            f_hjb_rfm = V_func(rfm_collocs) + fm_rfm_vals + Q_square_rfm
+
+            # Testing fix 1:
+            LU_rfm = np.hstack((LU_rfm, np.ones((LU_rfm.shape[0], 1)))) # Adding a column of 1's to the system
+
+            rfm_total = constrained_lsq(LU_rfm, f_hjb_rfm, U_normalization_aug, 0, regularization=1e-6)
+            w_hjb_new = rfm_total[:-1]
+            lam_rfm = rfm_total[-1]
+            print("recovered RFM lambda (should be 1) is:", lam_rfm)
+            # lam_rfm = np.mean(f_hjb_rfm - LU_rfm @ w_hjb_new)
+
+            # Plot against true values
             true_u_vals = u[i](x)
-            plot_u_vs_true(x, u_vals, true_u_vals)
+            u_rfm, du_rfm, d2u_rfm = hjb_rfm.get_feature_diffs(w_hjb_new)
+            x_tensor = torch.from_numpy(x).to(torch.float64).view(-1)
+            u_rfm_vals = u_rfm(x_tensor).detach().numpy()
+            plot_u_vs_true(x, u_vals, u_rfm_vals, true_u_vals)
+            print(lam_rfm, lam)
 
-
-    def test_fp_mms(n_points=200):
+    def test_fp_mms(Mm, Jm, Qm, n_points=200):
         def plot_m_vs_true(x, m_vals, true_m_vals, title="Comparison of m and true m"):
             h = x[1] - x[0]
             plt.figure(figsize=(10, 5))
@@ -648,22 +889,40 @@ def test(MMS=False):
             true_m_vals = m[i](x)
             plot_m_vs_true(x, m_vals, true_m_vals)
 
+    Mu, Mm, Mb = 5, 5, 5
+    Ju, Jm, Jb = 40, 40, 30
+    Il = 400
+    Qu, Qm, Qb = 80, 80, 60
 
     if MMS:
-        test_hjb_mms()
-        test_fp_mms()
+        test_hjb_mms(Mu, Ju, Qu)
+        test_fp_mms(Mm, Jm, Qm)
 
-    # m_fd, u_fd, lam_fd = policy_iteration_fd("cacace", 200, n_iters=20, R=2000, plot=False, final_plot=True)
-    # print("Cacace lambda", lam_fd)
+    m_fd, u_fd, lam_fd = rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, False, "cacace", 400, n_iters=20, R=2000, plot=True, final_plot=True)
+    print("Cacace lambda", lam_fd)
 
     # Check against Fig 2 in Yang.
-    m_fd, u_fd, lam_fd = policy_iteration_fd("yang1", 400, n_iters=10, eps=0.5, R=2000, plot=True, final_plot=True)
+    m_fd, u_fd, lam_fd = rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, False, "yang1", 400, n_iters=10, eps=0.5, R=2000, plot=True, final_plot=True)
     print("Yang 5.2 lambda", lam_fd)
 
     # Check against Fig 3 in Yang.
-    # m_fd, u_fd, lam_fd = policy_iteration_fd("yang2", 100, n_iters=100, R=2000, plot=False, final_plot=True)
-    # print("Yang 5.3.1 lambda", lam_fd)
+    m_fd, u_fd, lam_fd = rfm_vs_fd(Mu, Ju, Mm, Jm, Qu, Qm, False, "yang2", 100, n_iters=100, R=2000, plot=True, final_plot=True)
+    print("Yang 5.3.1 lambda", lam_fd)
 
 
 if __name__ == '__main__':
-    test()
+    def set_seed(seed):
+        """
+        Set random seed for reproducibility.
+        :param seed: seed to set
+        :return: None
+        """
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+
+    set_seed(100)
+
+    test_forward(MMS=False)
